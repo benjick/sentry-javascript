@@ -1,15 +1,20 @@
-import type { Span } from '@opentelemetry/api';
-import { SpanKind } from '@opentelemetry/api';
-import type { Instrumentation } from '@opentelemetry/instrumentation';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
-import { addBreadcrumb, defineIntegration } from '@sentry/core';
-import { getRequestSpanData, getSpanKind } from '@sentry/opentelemetry';
-import type { IntegrationFn } from '@sentry/types';
-import { logger } from '@sentry/utils';
-import { DEBUG_BUILD } from '../debug-build';
-import { NODE_MAJOR } from '../nodeVersion';
-
-import { addOriginToSpan } from '../utils/addOriginToSpan';
+import type { UndiciRequest, UndiciResponse } from '@opentelemetry/instrumentation-undici';
+import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
+import type { IntegrationFn, SanitizedRequestData } from '@sentry/core';
+import {
+  LRUMap,
+  SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
+  addBreadcrumb,
+  defineIntegration,
+  getBreadcrumbLogLevelFromHttpStatusCode,
+  getClient,
+  getSanitizedUrlString,
+  getTraceData,
+  hasTracingEnabled,
+  parseUrl,
+} from '@sentry/core';
+import { shouldPropagateTraceForUrl } from '@sentry/opentelemetry';
 
 interface NodeFetchOptions {
   /**
@@ -29,71 +34,121 @@ const _nativeNodeFetchIntegration = ((options: NodeFetchOptions = {}) => {
   const _breadcrumbs = typeof options.breadcrumbs === 'undefined' ? true : options.breadcrumbs;
   const _ignoreOutgoingRequests = options.ignoreOutgoingRequests;
 
-  async function getInstrumentation(): Promise<[Instrumentation] | void> {
-    // Only add NodeFetch if Node >= 18, as previous versions do not support it
-    if (NODE_MAJOR < 18) {
-      DEBUG_BUILD && logger.log('NodeFetch is not supported on Node < 18, skipping instrumentation...');
-      return;
-    }
-
-    try {
-      const pkg = await import('opentelemetry-instrumentation-fetch-node');
-      return [
-        new pkg.FetchInstrumentation({
-          ignoreRequestHook: (request: { origin?: string }) => {
-            const url = request.origin;
-            return _ignoreOutgoingRequests && url && _ignoreOutgoingRequests(url);
-          },
-          onRequest: ({ span }: { span: Span }) => {
-            _updateSpan(span);
-
-            if (_breadcrumbs) {
-              _addRequestBreadcrumb(span);
-            }
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any),
-      ];
-    } catch (error) {
-      // Could not load instrumentation
-      DEBUG_BUILD && logger.log('Could not load NodeFetch instrumentation.');
-    }
-  }
-
   return {
     name: 'NodeFetch',
     setupOnce() {
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      getInstrumentation().then(instrumentations => {
-        if (instrumentations) {
-          registerInstrumentations({
-            instrumentations,
-          });
-        }
+      const propagationDecisionMap = new LRUMap<string, boolean>(100);
+
+      const instrumentation = new UndiciInstrumentation({
+        requireParentforSpans: false,
+        ignoreRequestHook: request => {
+          const url = getAbsoluteUrl(request.origin, request.path);
+          const shouldIgnore = _ignoreOutgoingRequests && url && _ignoreOutgoingRequests(url);
+
+          if (shouldIgnore) {
+            return true;
+          }
+
+          // If tracing is disabled, we still want to propagate traces
+          // So we do that manually here, matching what the instrumentation does otherwise
+          if (!hasTracingEnabled()) {
+            const tracePropagationTargets = getClient()?.getOptions().tracePropagationTargets;
+            const addedHeaders = shouldPropagateTraceForUrl(url, tracePropagationTargets, propagationDecisionMap)
+              ? getTraceData()
+              : {};
+
+            const requestHeaders = request.headers;
+            if (Array.isArray(requestHeaders)) {
+              Object.entries(addedHeaders).forEach(headers => requestHeaders.push(...headers));
+            } else {
+              request.headers += Object.entries(addedHeaders)
+                .map(([k, v]) => `${k}: ${v}\r\n`)
+                .join('');
+            }
+
+            // Prevent starting a span for this request
+            return true;
+          }
+
+          return false;
+        },
+        startSpanHook: () => {
+          return {
+            [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: 'auto.http.otel.node_fetch',
+          };
+        },
+        responseHook: (_, { request, response }) => {
+          if (_breadcrumbs) {
+            addRequestBreadcrumb(request, response);
+          }
+        },
       });
+
+      registerInstrumentations({ instrumentations: [instrumentation] });
     },
   };
 }) satisfies IntegrationFn;
 
 export const nativeNodeFetchIntegration = defineIntegration(_nativeNodeFetchIntegration);
 
-/** Update the span with data we need. */
-function _updateSpan(span: Span): void {
-  addOriginToSpan(span, 'auto.http.otel.node_fetch');
+/** Add a breadcrumb for outgoing requests. */
+function addRequestBreadcrumb(request: UndiciRequest, response: UndiciResponse): void {
+  const data = getBreadcrumbData(request);
+  const statusCode = response.statusCode;
+  const level = getBreadcrumbLogLevelFromHttpStatusCode(statusCode);
+
+  addBreadcrumb(
+    {
+      category: 'http',
+      data: {
+        status_code: statusCode,
+        ...data,
+      },
+      type: 'http',
+      level,
+    },
+    {
+      event: 'response',
+      request,
+      response,
+    },
+  );
 }
 
-/** Add a breadcrumb for outgoing requests. */
-function _addRequestBreadcrumb(span: Span): void {
-  if (getSpanKind(span) !== SpanKind.CLIENT) {
-    return;
+function getBreadcrumbData(request: UndiciRequest): Partial<SanitizedRequestData> {
+  try {
+    const url = new URL(request.path, request.origin);
+    const parsedUrl = parseUrl(url.toString());
+
+    const data: Partial<SanitizedRequestData> = {
+      url: getSanitizedUrlString(parsedUrl),
+      'http.method': request.method || 'GET',
+    };
+
+    if (parsedUrl.search) {
+      data['http.query'] = parsedUrl.search;
+    }
+    if (parsedUrl.hash) {
+      data['http.fragment'] = parsedUrl.hash;
+    }
+
+    return data;
+  } catch {
+    return {};
+  }
+}
+
+// Matching the behavior of the base instrumentation
+function getAbsoluteUrl(origin: string, path: string = '/'): string {
+  const url = `${origin}`;
+
+  if (url.endsWith('/') && path.startsWith('/')) {
+    return `${url}${path.slice(1)}`;
   }
 
-  const data = getRequestSpanData(span);
-  addBreadcrumb({
-    category: 'http',
-    data: {
-      ...data,
-    },
-    type: 'http',
-  });
+  if (!url.endsWith('/') && !path.startsWith('/')) {
+    return `${url}/${path.slice(1)}`;
+  }
+
+  return `${url}${path}`;
 }

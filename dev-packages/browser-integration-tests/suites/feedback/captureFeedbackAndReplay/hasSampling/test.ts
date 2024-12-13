@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 
-import { sentryTest } from '../../../../utils/fixtures';
+import { TEST_HOST, sentryTest } from '../../../../utils/fixtures';
 import { envelopeRequestParser, getEnvelopeType, shouldSkipFeedbackTest } from '../../../../utils/helpers';
 import {
   collectReplayRequests,
@@ -9,7 +9,7 @@ import {
   waitForReplayRequest,
 } from '../../../../utils/replayHelpers';
 
-sentryTest('should capture feedback', async ({ forceFlushReplay, getLocalTestPath, page }) => {
+sentryTest('should capture feedback', async ({ forceFlushReplay, getLocalTestUrl, page }) => {
   if (shouldSkipFeedbackTest() || shouldSkipReplayTest()) {
     sentryTest.skip();
   }
@@ -31,15 +31,7 @@ sentryTest('should capture feedback', async ({ forceFlushReplay, getLocalTestPat
     }
   });
 
-  await page.route('https://dsn.ingest.sentry.io/**/*', route => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'test-id' }),
-    });
-  });
-
-  const url = await getLocalTestPath({ testDir: __dirname });
+  const url = await getLocalTestUrl({ testDir: __dirname, handleLazyLoadedFeedback: true });
 
   await Promise.all([page.goto(url), page.getByText('Report a Bug').click(), reqPromise0]);
 
@@ -87,10 +79,15 @@ sentryTest('should capture feedback', async ({ forceFlushReplay, getLocalTestPat
         name: 'Jane Doe',
         replay_id: replayEvent.event_id,
         source: 'widget',
-        url: expect.stringContaining('/dist/index.html'),
+        url: `${TEST_HOST}/index.html`,
+      },
+      trace: {
+        trace_id: expect.stringMatching(/\w{32}/),
+        span_id: expect.stringMatching(/\w{16}/),
       },
     },
     level: 'info',
+    tags: {},
     timestamp: expect.any(Number),
     event_id: expect.stringMatching(/\w{32}/),
     environment: 'production',
@@ -101,7 +98,7 @@ sentryTest('should capture feedback', async ({ forceFlushReplay, getLocalTestPat
       packages: expect.anything(),
     },
     request: {
-      url: expect.stringContaining('/dist/index.html'),
+      url: `${TEST_HOST}/index.html`,
       headers: {
         'User-Agent': expect.stringContaining(''),
       },

@@ -35,4 +35,10 @@
   <li>
     <a href="/nav2">Nav 2</a>
   </li>
+  <li>
+    <a href="components">Component Tracking</a>
+  </li>
+  <li>
+    <a href="/wrap-server-route">server routes</a>
+  </li>
 </ul>

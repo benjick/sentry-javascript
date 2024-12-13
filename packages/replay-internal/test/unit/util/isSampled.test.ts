@@ -1,3 +1,5 @@
+import { describe, expect, test, vi } from 'vitest';
+
 import { isSampled } from '../../../src/util/isSampled';
 
 // Note Math.random generates a value from 0 (inclusive) to <1 (1 exclusive).
@@ -14,7 +16,7 @@ const cases: [number, number, boolean][] = [
 ];
 
 describe('Unit | util | isSampled', () => {
-  const mockRandom = jest.spyOn(Math, 'random');
+  const mockRandom = vi.spyOn(Math, 'random');
 
   test.each(cases)(
     'given sample rate of %p and RNG returns %p, result should be %p',

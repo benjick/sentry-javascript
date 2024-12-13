@@ -1,6 +1,6 @@
 /**
  * This code was originally forked from https://github.com/TooTallNate/proxy-agents/tree/b133295fd16f6475578b6b15bd9b4e33ecb0d0b7
- * With the following licence:
+ * With the following LICENSE:
  *
  * (The MIT License)
  *
@@ -29,10 +29,10 @@
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 /* eslint-disable @typescript-eslint/member-ordering */
 /* eslint-disable jsdoc/require-jsdoc */
-import * as http from 'http';
-import type * as net from 'net';
-import type { Duplex } from 'stream';
-import type * as tls from 'tls';
+import * as http from 'node:http';
+import type * as net from 'node:net';
+import type { Duplex } from 'node:stream';
+import type * as tls from 'node:tls';
 
 export * from './helpers';
 
@@ -81,8 +81,7 @@ export abstract class Agent extends http.Agent {
     if (options) {
       // First check the `secureEndpoint` property explicitly, since this
       // means that a parent `Agent` is "passing through" to this instance.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-      if (typeof (options as any).secureEndpoint === 'boolean') {
+      if (typeof (options as Partial<typeof options>).secureEndpoint === 'boolean') {
         return options.secureEndpoint;
       }
 

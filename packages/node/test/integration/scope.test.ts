@@ -42,7 +42,7 @@ describe('Integration | Scope', () => {
           scope2.setTag('tag3', 'val3');
 
           Sentry.startSpan({ name: 'outer' }, span => {
-            expect(getCapturedScopesOnSpan(span)?.scope).toBe(enableTracing ? scope2 : undefined);
+            expect(getCapturedScopesOnSpan(span).scope).toBe(enableTracing ? scope2 : undefined);
 
             spanId = span.spanContext().spanId;
             traceId = span.spanContext().traceId;
@@ -65,8 +65,6 @@ describe('Integration | Scope', () => {
               trace: {
                 span_id: spanId,
                 trace_id: traceId,
-                // local span ID from propagation context
-                ...(enableTracing ? { parent_span_id: expect.any(String) } : undefined),
               },
             }),
           }),
@@ -86,7 +84,6 @@ describe('Integration | Scope', () => {
             tag3: 'val3',
             tag4: 'val4',
           },
-          ...(enableTracing ? { transaction: 'outer' } : {}),
         }),
         {
           event_id: expect.any(String),
@@ -103,7 +100,6 @@ describe('Integration | Scope', () => {
             contexts: expect.objectContaining({
               trace: {
                 data: {
-                  'otel.kind': 'INTERNAL',
                   'sentry.origin': 'manual',
                   'sentry.source': 'custom',
                   'sentry.sample_rate': 1,
@@ -112,8 +108,6 @@ describe('Integration | Scope', () => {
                 status: 'ok',
                 trace_id: traceId,
                 origin: 'manual',
-                // local span ID from propagation context
-                parent_span_id: expect.any(String),
               },
             }),
             spans: [],
@@ -125,7 +119,6 @@ describe('Integration | Scope', () => {
               tag4: 'val4',
             },
             timestamp: expect.any(Number),
-            transaction: 'outer',
             transaction_info: { source: 'custom' },
             type: 'transaction',
           }),
@@ -198,8 +191,6 @@ describe('Integration | Scope', () => {
               ? {
                   span_id: spanId1,
                   trace_id: traceId1,
-                  // local span ID from propagation context
-                  ...(enableTracing ? { parent_span_id: expect.any(String) } : undefined),
                 }
               : expect.any(Object),
           }),
@@ -209,7 +200,6 @@ describe('Integration | Scope', () => {
             tag3: 'val3a',
             tag4: 'val4a',
           },
-          ...(enableTracing ? { transaction: 'outer' } : {}),
         }),
         {
           event_id: expect.any(String),
@@ -225,8 +215,6 @@ describe('Integration | Scope', () => {
               ? {
                   span_id: spanId2,
                   trace_id: traceId2,
-                  // local span ID from propagation context
-                  ...(enableTracing ? { parent_span_id: expect.any(String) } : undefined),
                 }
               : expect.any(Object),
           }),
@@ -236,7 +224,6 @@ describe('Integration | Scope', () => {
             tag3: 'val3b',
             tag4: 'val4b',
           },
-          ...(enableTracing ? { transaction: 'outer' } : {}),
         }),
         {
           event_id: expect.any(String),

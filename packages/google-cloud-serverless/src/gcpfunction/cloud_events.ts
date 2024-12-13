@@ -1,6 +1,6 @@
 import { SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN, SEMANTIC_ATTRIBUTE_SENTRY_SOURCE, handleCallbackErrors } from '@sentry/core';
+import { logger } from '@sentry/core';
 import { captureException, flush, getCurrentScope, startSpanManual } from '@sentry/node';
-import { logger } from '@sentry/utils';
 
 import { DEBUG_BUILD } from '../debug-build';
 import { domainify, markEventUnhandled, proxyFunction } from '../utils';
@@ -56,7 +56,9 @@ function _wrapCloudEventFunction(
               DEBUG_BUILD && logger.error(e);
             })
             .then(() => {
-              callback(...args);
+              if (typeof callback === 'function') {
+                callback(...args);
+              }
             });
         });
 

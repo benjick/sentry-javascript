@@ -1,8 +1,16 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { MockInstance } from 'vitest';
+
 import { mockSdk } from '../index';
 
 describe('Integration | integrationSettings', () => {
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
   });
 
   describe('blockAllMedia', () => {
@@ -14,10 +22,10 @@ describe('Integration | integrationSettings', () => {
   });
 
   describe('replaysSessionSampleRate', () => {
-    let mockConsole: jest.SpyInstance<void>;
+    let mockConsole: MockInstance<void>;
 
     beforeEach(() => {
-      mockConsole = jest.spyOn(console, 'warn').mockImplementation(jest.fn());
+      mockConsole = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
     });
 
     afterEach(() => {
@@ -53,10 +61,10 @@ describe('Integration | integrationSettings', () => {
   });
 
   describe('replaysOnErrorSampleRate', () => {
-    let mockConsole: jest.SpyInstance<void>;
+    let mockConsole: MockInstance<void>;
 
     beforeEach(() => {
-      mockConsole = jest.spyOn(console, 'warn').mockImplementation(jest.fn());
+      mockConsole = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
     });
 
     afterEach(() => {
@@ -92,10 +100,10 @@ describe('Integration | integrationSettings', () => {
   });
 
   describe('all sample rates', () => {
-    let mockConsole: jest.SpyInstance<void>;
+    let mockConsole: MockInstance<void>;
 
     beforeEach(() => {
-      mockConsole = jest.spyOn(console, 'warn').mockImplementation(jest.fn());
+      mockConsole = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
     });
 
     afterEach(() => {

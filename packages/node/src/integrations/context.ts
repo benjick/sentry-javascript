@@ -1,9 +1,10 @@
-import { execFile } from 'child_process';
-import { readFile, readdir } from 'fs';
-import * as os from 'os';
-import { join } from 'path';
-import { promisify } from 'util';
-import { defineIntegration } from '@sentry/core';
+/* eslint-disable max-lines */
+
+import { execFile } from 'node:child_process';
+import { readFile, readdir } from 'node:fs';
+import * as os from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import type {
   AppContext,
   CloudResourceContext,
@@ -13,10 +14,17 @@ import type {
   Event,
   IntegrationFn,
   OsContext,
-} from '@sentry/types';
+} from '@sentry/core';
+import { defineIntegration } from '@sentry/core';
 
 export const readFileAsync = promisify(readFile);
 export const readDirAsync = promisify(readdir);
+
+// Process enhanced with methods from Node 18, 20, 22 as @types/node
+// is on `14.18.0` to match minimum version requirements of the SDK
+interface ProcessWithCurrentValues extends NodeJS.Process {
+  availableMemory?(): number;
+}
 
 const INTEGRATION_NAME = 'Context';
 
@@ -114,8 +122,16 @@ export const nodeContextIntegration = defineIntegration(_nodeContextIntegration)
  */
 function _updateContext(contexts: Contexts): Contexts {
   // Only update properties if they exist
+
   if (contexts?.app?.app_memory) {
     contexts.app.app_memory = process.memoryUsage().rss;
+  }
+
+  if (contexts?.app?.free_memory && typeof (process as ProcessWithCurrentValues).availableMemory === 'function') {
+    const freeMemory = (process as ProcessWithCurrentValues).availableMemory?.();
+    if (freeMemory != null) {
+      contexts.app.free_memory = freeMemory;
+    }
   }
 
   if (contexts?.device?.free_memory) {
@@ -156,8 +172,7 @@ async function getOsContext(): Promise<OsContext> {
 
 function getCultureContext(): CultureContext | undefined {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-    if (typeof (process.versions as unknown as any).icu !== 'string') {
+    if (typeof process.versions.icu !== 'string') {
       // Node was built without ICU support
       return;
     }
@@ -183,11 +198,23 @@ function getCultureContext(): CultureContext | undefined {
   return;
 }
 
-function getAppContext(): AppContext {
+/**
+ * Get app context information from process
+ */
+export function getAppContext(): AppContext {
   const app_memory = process.memoryUsage().rss;
   const app_start_time = new Date(Date.now() - process.uptime() * 1000).toISOString();
+  // https://nodejs.org/api/process.html#processavailablememory
+  const appContext: AppContext = { app_start_time, app_memory };
 
-  return { app_start_time, app_memory };
+  if (typeof (process as ProcessWithCurrentValues).availableMemory === 'function') {
+    const freeMemory = (process as ProcessWithCurrentValues).availableMemory?.();
+    if (freeMemory != null) {
+      appContext.free_memory = freeMemory;
+    }
+  }
+
+  return appContext;
 }
 
 /**
@@ -220,9 +247,8 @@ export function getDeviceContext(deviceOpt: DeviceContextOptions | true): Device
 
   if (deviceOpt === true || deviceOpt.cpu) {
     const cpuInfo: os.CpuInfo[] | undefined = os.cpus();
-    if (cpuInfo && cpuInfo.length) {
-      const firstCpu = cpuInfo[0];
-
+    const firstCpu = cpuInfo && cpuInfo[0];
+    if (firstCpu) {
       device.processor_count = cpuInfo.length;
       device.cpu_description = firstCpu.model;
       device.processor_frequency = firstCpu.speed;
@@ -246,7 +272,7 @@ interface DistroFile {
   /** The file name, located in `/etc`. */
   name: string;
   /** Potential distributions to check. */
-  distros: string[];
+  distros: [string, ...string[]];
 }
 
 /** Mapping of linux release files located in /etc to distributions. */
@@ -329,7 +355,7 @@ async function getDarwinInfo(): Promise<OsContext> {
 
 /** Returns a distribution identifier to look up version callbacks. */
 function getLinuxDistroId(name: string): string {
-  return name.split(' ')[0].toLowerCase();
+  return (name.split(' ') as [string])[0].toLowerCase();
 }
 
 /** Loads the Linux operating system context. */
@@ -374,7 +400,7 @@ async function getLinuxInfo(): Promise<OsContext> {
     // number. This is different for every distribution, so several strategies
     // are computed in `LINUX_VERSIONS`.
     const id = getLinuxDistroId(linuxInfo.name);
-    linuxInfo.version = LINUX_VERSIONS[id](contents);
+    linuxInfo.version = LINUX_VERSIONS[id]?.(contents);
   } catch (e) {
     // ignore
   }

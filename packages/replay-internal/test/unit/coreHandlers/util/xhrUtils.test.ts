@@ -1,3 +1,9 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { describe, expect, it } from 'vitest';
+
 import { _parseXhrResponse } from '../../../../src/coreHandlers/util/xhrUtils';
 
 describe('Unit | coreHandlers | util | xhrUtils', () => {
@@ -8,12 +14,12 @@ describe('Unit | coreHandlers | util | xhrUtils', () => {
     });
 
     it('works with a Document', () => {
-      const body = document.implementation.createHTMLDocument();
+      const doc = document.implementation.createHTMLDocument();
       const bodyEl = document.createElement('body');
       bodyEl.innerHTML = '<div>abc</div>';
-      body.body = bodyEl;
+      doc.body = bodyEl;
 
-      const actual = _parseXhrResponse(body, '');
+      const actual = _parseXhrResponse(doc, '');
       expect(actual).toEqual(['<body><div>abc</div></body>']);
     });
 

@@ -16,6 +16,11 @@ const NODE_EXPORTS_IGNORE = [
   '__esModule',
   // Only required from the Node package
   'setNodeAsyncContextStrategy',
+  'getDefaultIntegrationsWithoutPerformance',
+  'initWithoutDefaultIntegrations',
+  'SentryContextManager',
+  'validateOpenTelemetrySetup',
+  'preloadOpenTelemetry',
 ];
 
 const nodeExports = Object.keys(SentryNode).filter(e => !NODE_EXPORTS_IGNORE.includes(e));
@@ -45,6 +50,9 @@ const DEPENDENTS: Dependent[] = [
     ignoreExports: [
       // not supported in bun:
       'NodeClient',
+      // Bun doesn't emit the required diagnostics_channel events
+      'processThreadBreadcrumbIntegration',
+      'childProcessIntegration',
     ],
   },
   {

@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'vitest';
+
 import { buildClientSnippet, buildSdkInitFileImportSnippet, buildServerSnippet } from '../../src/integration/snippets';
 
 const allSdkOptions = {
@@ -15,7 +17,7 @@ describe('buildClientSnippet', () => {
   it('returns a basic Sentry init call with default options', () => {
     const snippet = buildClientSnippet({});
     expect(snippet).toMatchInlineSnapshot(`
-      "import * as Sentry from \\"@sentry/astro\\";
+      "import * as Sentry from "@sentry/astro";
 
       Sentry.init({
         dsn: import.meta.env.PUBLIC_SENTRY_DSN,
@@ -34,13 +36,13 @@ describe('buildClientSnippet', () => {
     const snippet = buildClientSnippet(allSdkOptions);
 
     expect(snippet).toMatchInlineSnapshot(`
-      "import * as Sentry from \\"@sentry/astro\\";
+      "import * as Sentry from "@sentry/astro";
 
       Sentry.init({
-        dsn: \\"my-dsn\\",
+        dsn: "my-dsn",
         debug: true,
-        environment: \\"staging\\",
-        release: \\"1.0.0\\",
+        environment: "staging",
+        release: "1.0.0",
         tracesSampleRate: 0.3,
         sampleRate: 0.2,
         integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration()],
@@ -50,10 +52,28 @@ describe('buildClientSnippet', () => {
     `);
   });
 
-  it('does not include browserTracingIntegration if tracesSampleRate is 0', () => {
+  it('does not include browserTracingIntegration if bundleSizeOptimizations.excludeTracing is true', () => {
+    const snippet = buildClientSnippet({ bundleSizeOptimizations: { excludeTracing: true } });
+    expect(snippet).toMatchInlineSnapshot(`
+      "import * as Sentry from "@sentry/astro";
+
+      Sentry.init({
+        dsn: import.meta.env.PUBLIC_SENTRY_DSN,
+        debug: false,
+        environment: import.meta.env.PUBLIC_VERCEL_ENV,
+        release: import.meta.env.PUBLIC_VERCEL_GIT_COMMIT_SHA,
+        tracesSampleRate: 1,
+        integrations: [Sentry.replayIntegration()],
+        replaysSessionSampleRate: 0.1,
+        replaysOnErrorSampleRate: 1,
+      });"
+    `);
+  });
+
+  it('still include browserTracingIntegration if tracesSampleRate is 0', () => {
     const snippet = buildClientSnippet({ tracesSampleRate: 0 });
     expect(snippet).toMatchInlineSnapshot(`
-      "import * as Sentry from \\"@sentry/astro\\";
+      "import * as Sentry from "@sentry/astro";
 
       Sentry.init({
         dsn: import.meta.env.PUBLIC_SENTRY_DSN,
@@ -61,7 +81,7 @@ describe('buildClientSnippet', () => {
         environment: import.meta.env.PUBLIC_VERCEL_ENV,
         release: import.meta.env.PUBLIC_VERCEL_GIT_COMMIT_SHA,
         tracesSampleRate: 0,
-        integrations: [Sentry.replayIntegration()],
+        integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration()],
         replaysSessionSampleRate: 0.1,
         replaysOnErrorSampleRate: 1,
       });"
@@ -72,7 +92,7 @@ describe('buildClientSnippet', () => {
 it('does not include Replay if replay sample ratest are 0', () => {
   const snippet = buildClientSnippet({ replaysSessionSampleRate: 0, replaysOnErrorSampleRate: 0 });
   expect(snippet).toMatchInlineSnapshot(`
-    "import * as Sentry from \\"@sentry/astro\\";
+    "import * as Sentry from "@sentry/astro";
 
     Sentry.init({
       dsn: import.meta.env.PUBLIC_SENTRY_DSN,
@@ -91,7 +111,7 @@ describe('buildServerSnippet', () => {
   it('returns a basic Sentry init call with default options', () => {
     const snippet = buildServerSnippet({});
     expect(snippet).toMatchInlineSnapshot(`
-      "import * as Sentry from \\"@sentry/astro\\";
+      "import * as Sentry from "@sentry/astro";
 
       Sentry.init({
         dsn: import.meta.env.PUBLIC_SENTRY_DSN,
@@ -107,13 +127,13 @@ describe('buildServerSnippet', () => {
     const snippet = buildServerSnippet(allSdkOptions);
 
     expect(snippet).toMatchInlineSnapshot(`
-      "import * as Sentry from \\"@sentry/astro\\";
+      "import * as Sentry from "@sentry/astro";
 
       Sentry.init({
-        dsn: \\"my-dsn\\",
+        dsn: "my-dsn",
         debug: true,
-        environment: \\"staging\\",
-        release: \\"1.0.0\\",
+        environment: "staging",
+        release: "1.0.0",
         tracesSampleRate: 0.3,
         sampleRate: 0.2,
       });"

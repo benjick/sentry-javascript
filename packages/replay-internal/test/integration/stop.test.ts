@@ -1,9 +1,15 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import type { MockInstance, MockedFunction } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import * as SentryBrowserUtils from '@sentry-internal/browser-utils';
 
 import { WINDOW } from '../../src/constants';
 import type { Replay } from '../../src/integration';
 import type { ReplayContainer } from '../../src/replay';
-import { clearSession } from '../../src/session/clearSession';
 import { addEvent } from '../../src/util/addEvent';
 import { createOptionsEvent } from '../../src/util/handleRecordingEmit';
 // mock functions need to be imported first
@@ -13,7 +19,7 @@ import { useFakeTimers } from '../utils/use-fake-timers';
 
 useFakeTimers();
 
-type MockRunFlush = jest.MockedFunction<ReplayContainer['_runFlush']>;
+type MockRunFlush = MockedFunction<ReplayContainer['_runFlush']>;
 
 describe('Integration | stop', () => {
   let replay: ReplayContainer;
@@ -22,45 +28,30 @@ describe('Integration | stop', () => {
 
   const { record: mockRecord } = mockRrweb();
 
-  let mockAddDomInstrumentationHandler: jest.SpyInstance;
+  let mockAddDomInstrumentationHandler: MockInstance;
   let mockRunFlush: MockRunFlush;
 
-  beforeAll(async () => {
-    jest.setSystemTime(new Date(BASE_TIMESTAMP));
-    mockAddDomInstrumentationHandler = jest.spyOn(SentryBrowserUtils, 'addClickKeypressInstrumentationHandler');
+  beforeEach(async () => {
+    vi.setSystemTime(new Date(BASE_TIMESTAMP));
+    mockAddDomInstrumentationHandler = vi.spyOn(SentryBrowserUtils, 'addClickKeypressInstrumentationHandler');
 
     ({ replay, integration } = await mockSdk());
 
     // @ts-expect-error private API
-    mockRunFlush = jest.spyOn(replay, '_runFlush');
+    mockRunFlush = vi.spyOn(replay, '_runFlush');
 
-    jest.runAllTimers();
-  });
-
-  beforeEach(() => {
-    jest.setSystemTime(new Date(BASE_TIMESTAMP));
-    replay.eventBuffer?.destroy();
-    jest.clearAllMocks();
+    await vi.runAllTimersAsync();
+    vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    jest.runAllTimers();
-    await new Promise(process.nextTick);
-    jest.setSystemTime(new Date(BASE_TIMESTAMP));
-    sessionStorage.clear();
-    clearSession(replay);
-    replay['_initializeSessionForSampling']();
-    replay.setInitialState();
-    mockRecord.takeFullSnapshot.mockClear();
-    mockAddDomInstrumentationHandler.mockClear();
+    vi.setSystemTime(new Date(BASE_TIMESTAMP));
+    integration && (await integration.stop());
     Object.defineProperty(WINDOW, 'location', {
       value: prevLocation,
       writable: true,
     });
-  });
-
-  afterAll(() => {
-    integration && integration.stop();
+    vi.clearAllMocks();
   });
 
   it('does not upload replay if it was stopped and can resume replays afterwards', async () => {
@@ -71,8 +62,6 @@ describe('Integration | stop', () => {
       },
     });
     const ELAPSED = 5000;
-    // Not sure where the 20ms comes from tbh
-    const EXTRA_TICKS = 20;
     const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
     const previousSessionId = replay.session?.id;
 
@@ -80,7 +69,7 @@ describe('Integration | stop', () => {
     await integration.stop();
 
     // Pretend 5 seconds have passed
-    jest.advanceTimersByTime(ELAPSED);
+    vi.advanceTimersByTime(ELAPSED);
 
     addEvent(replay, TEST_EVENT);
     WINDOW.dispatchEvent(new Event('blur'));
@@ -99,9 +88,9 @@ describe('Integration | stop', () => {
     // will be different session
     expect(replay.session?.id).not.toEqual(previousSessionId);
 
-    jest.advanceTimersByTime(ELAPSED);
+    vi.advanceTimersByTime(ELAPSED);
 
-    const timestamp = +new Date(BASE_TIMESTAMP + ELAPSED + ELAPSED + EXTRA_TICKS) / 1000;
+    const timestamp = +new Date(BASE_TIMESTAMP + ELAPSED + ELAPSED + ELAPSED) / 1000;
 
     const hiddenBreadcrumb = {
       type: 5,
@@ -118,7 +107,7 @@ describe('Integration | stop', () => {
 
     addEvent(replay, TEST_EVENT);
     WINDOW.dispatchEvent(new Event('blur'));
-    jest.runAllTimers();
+    await vi.runAllTimersAsync();
     await new Promise(process.nextTick);
     expect(replay).toHaveLastSentReplay({
       recordingPayloadHeader: { segment_id: 0 },
@@ -126,7 +115,7 @@ describe('Integration | stop', () => {
         // This event happens when we call `replay.start`
         {
           data: { isCheckout: true },
-          timestamp: BASE_TIMESTAMP + ELAPSED + EXTRA_TICKS,
+          timestamp: BASE_TIMESTAMP + ELAPSED + ELAPSED,
           type: 2,
         },
         optionsEvent,
@@ -137,12 +126,14 @@ describe('Integration | stop', () => {
 
     // Session's last activity is last updated when we call `setup()` and *NOT*
     // when tab is blurred
-    expect(replay.session?.lastActivity).toBe(BASE_TIMESTAMP + ELAPSED + 20);
+    expect(replay.session?.lastActivity).toBe(BASE_TIMESTAMP + ELAPSED + ELAPSED);
   });
 
   it('does not buffer new events after being stopped', async function () {
+    expect(replay.eventBuffer?.hasEvents).toBe(false);
+    expect(mockRunFlush).toHaveBeenCalledTimes(0);
     const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
-    addEvent(replay, TEST_EVENT);
+    addEvent(replay, TEST_EVENT, true);
     expect(replay.eventBuffer?.hasEvents).toBe(true);
     expect(mockRunFlush).toHaveBeenCalledTimes(0);
 

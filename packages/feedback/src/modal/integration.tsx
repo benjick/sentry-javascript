@@ -1,25 +1,39 @@
-import { getCurrentScope } from '@sentry/core';
-import type { CreateDialogProps, FeedbackFormData, FeedbackModalIntegration, IntegrationFn } from '@sentry/types';
+import { getCurrentScope, getGlobalScope, getIsolationScope } from '@sentry/core';
+import type { FeedbackFormData, FeedbackModalIntegration, IntegrationFn, User } from '@sentry/core';
 import { h, render } from 'preact';
+import * as hooks from 'preact/hooks';
 import { DOCUMENT } from '../constants';
+import { Dialog } from './components/Dialog';
 import { createDialogStyles } from './components/Dialog.css';
-import { DialogComponent } from './components/DialogContainer';
+
+function getUser(): User | undefined {
+  const currentUser = getCurrentScope().getUser();
+  const isolationUser = getIsolationScope().getUser();
+  const globalUser = getGlobalScope().getUser();
+  if (currentUser && Object.keys(currentUser).length) {
+    return currentUser;
+  }
+  if (isolationUser && Object.keys(isolationUser).length) {
+    return isolationUser;
+  }
+  return globalUser;
+}
 
 export const feedbackModalIntegration = ((): FeedbackModalIntegration => {
   return {
     name: 'FeedbackModal',
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     setupOnce() {},
-    createDialog: ({ options, screenshotIntegration, sendFeedback, shadow }: CreateDialogProps) => {
+    createDialog: ({ options, screenshotIntegration, sendFeedback, shadow }) => {
       const shadowRoot = shadow as unknown as ShadowRoot;
       const userKey = options.useSentryUser;
-      const scope = getCurrentScope();
-      const user = scope && scope.getUser();
+      const user = getUser();
 
       const el = DOCUMENT.createElement('div');
-      const style = createDialogStyles();
+      const style = createDialogStyles(options.styleNonce);
 
-      const dialog = {
+      let originalOverflow = '';
+      const dialog: ReturnType<FeedbackModalIntegration['createDialog']> = {
         get el() {
           return el;
         },
@@ -32,41 +46,31 @@ export const feedbackModalIntegration = ((): FeedbackModalIntegration => {
         removeFromDom(): void {
           shadowRoot.removeChild(el);
           shadowRoot.removeChild(style);
+          DOCUMENT.body.style.overflow = originalOverflow;
         },
         open() {
           renderContent(true);
           options.onFormOpen && options.onFormOpen();
+          originalOverflow = DOCUMENT.body.style.overflow;
+          DOCUMENT.body.style.overflow = 'hidden';
         },
         close() {
           renderContent(false);
+          DOCUMENT.body.style.overflow = originalOverflow;
         },
       };
 
-      const screenshotInput = screenshotIntegration && screenshotIntegration.createInput(h, dialog);
+      const screenshotInput = screenshotIntegration && screenshotIntegration.createInput({ h, hooks, dialog, options });
 
       const renderContent = (open: boolean): void => {
         render(
-          <DialogComponent
+          <Dialog
+            options={options}
             screenshotInput={screenshotInput}
-            colorScheme={options.colorScheme}
-            showBranding={options.showBranding}
             showName={options.showName || options.isNameRequired}
             showEmail={options.showEmail || options.isEmailRequired}
-            isNameRequired={options.isNameRequired}
-            isEmailRequired={options.isEmailRequired}
-            formTitle={options.formTitle}
-            cancelButtonLabel={options.cancelButtonLabel}
-            submitButtonLabel={options.submitButtonLabel}
-            emailLabel={options.emailLabel}
-            emailPlaceholder={options.emailPlaceholder}
-            messageLabel={options.messageLabel}
-            messagePlaceholder={options.messagePlaceholder}
-            nameLabel={options.nameLabel}
-            namePlaceholder={options.namePlaceholder}
             defaultName={(userKey && user && user[userKey.name]) || ''}
             defaultEmail={(userKey && user && user[userKey.email]) || ''}
-            successMessageText={options.successMessageText}
-            isRequiredText={options.isRequiredText}
             onFormClose={() => {
               renderContent(false);
               options.onFormClose && options.onFormClose();

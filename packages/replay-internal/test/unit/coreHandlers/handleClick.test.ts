@@ -1,15 +1,22 @@
-import type { Breadcrumb } from '@sentry/types';
+/**
+ * @vitest-environment jsdom
+ */
+
+import { beforeEach, describe, expect, it, test, vi } from 'vitest';
+
+import { useFakeTimers } from '../../utils/use-fake-timers';
+
+useFakeTimers();
+
+import type { Breadcrumb } from '@sentry/core';
 
 import { BASE_TIMESTAMP } from '../..';
 import { ClickDetector, ignoreElement } from '../../../src/coreHandlers/handleClick';
 import type { ReplayContainer } from '../../../src/types';
-
-jest.useFakeTimers();
-
 describe('Unit | coreHandlers | handleClick', () => {
   describe('ClickDetector', () => {
     beforeEach(() => {
-      jest.setSystemTime(BASE_TIMESTAMP);
+      vi.setSystemTime(BASE_TIMESTAMP);
     });
 
     test('it captures a single click', async () => {
@@ -17,7 +24,7 @@ describe('Unit | coreHandlers | handleClick', () => {
         getCurrentRoute: () => 'test-route',
       } as ReplayContainer;
 
-      const mockAddBreadcrumbEvent = jest.fn();
+      const mockAddBreadcrumbEvent = vi.fn();
 
       const detector = new ClickDetector(
         replay,
@@ -41,15 +48,15 @@ describe('Unit | coreHandlers | handleClick', () => {
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledWith(replay, {
@@ -61,13 +68,13 @@ describe('Unit | coreHandlers | handleClick', () => {
           nodeId: 1,
           route: 'test-route',
           timeAfterClickMs: 3000,
-          url: 'http://localhost/',
+          url: 'http://localhost:3000/',
         },
         message: undefined,
         timestamp: expect.any(Number),
       });
 
-      jest.advanceTimersByTime(5_000);
+      vi.advanceTimersByTime(5_000);
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
     });
 
@@ -76,7 +83,7 @@ describe('Unit | coreHandlers | handleClick', () => {
         getCurrentRoute: () => 'test-route',
       } as ReplayContainer;
 
-      const mockAddBreadcrumbEvent = jest.fn();
+      const mockAddBreadcrumbEvent = vi.fn();
 
       const detector = new ClickDetector(
         replay,
@@ -114,15 +121,15 @@ describe('Unit | coreHandlers | handleClick', () => {
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledWith(replay, {
@@ -134,13 +141,13 @@ describe('Unit | coreHandlers | handleClick', () => {
           nodeId: 1,
           route: 'test-route',
           timeAfterClickMs: 3000,
-          url: 'http://localhost/',
+          url: 'http://localhost:3000/',
         },
         message: undefined,
         timestamp: BASE_TIMESTAMP / 1000,
       });
 
-      jest.advanceTimersByTime(2_000);
+      vi.advanceTimersByTime(2_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(2);
       expect(mockAddBreadcrumbEvent).toHaveBeenLastCalledWith(replay, {
@@ -152,13 +159,13 @@ describe('Unit | coreHandlers | handleClick', () => {
           nodeId: 1,
           route: 'test-route',
           timeAfterClickMs: 3000,
-          url: 'http://localhost/',
+          url: 'http://localhost:3000/',
         },
         message: undefined,
         timestamp: (BASE_TIMESTAMP + 1200) / 1000,
       });
 
-      jest.advanceTimersByTime(5_000);
+      vi.advanceTimersByTime(5_000);
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(2);
     });
 
@@ -167,7 +174,7 @@ describe('Unit | coreHandlers | handleClick', () => {
         getCurrentRoute: () => 'test-route',
       } as ReplayContainer;
 
-      const mockAddBreadcrumbEvent = jest.fn();
+      const mockAddBreadcrumbEvent = vi.fn();
 
       const detector = new ClickDetector(
         replay,
@@ -207,11 +214,11 @@ describe('Unit | coreHandlers | handleClick', () => {
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(3_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(3);
 
-      jest.advanceTimersByTime(5_000);
+      vi.advanceTimersByTime(5_000);
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(3);
     });
 
@@ -220,7 +227,7 @@ describe('Unit | coreHandlers | handleClick', () => {
         getCurrentRoute: () => 'test-route',
       } as ReplayContainer;
 
-      const mockAddBreadcrumbEvent = jest.fn();
+      const mockAddBreadcrumbEvent = vi.fn();
 
       const detector = new ClickDetector(
         replay,
@@ -260,23 +267,23 @@ describe('Unit | coreHandlers | handleClick', () => {
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-      jest.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(3_000);
 
       expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
     });
 
     describe('mutations', () => {
       let detector: ClickDetector;
-      let mockAddBreadcrumbEvent = jest.fn();
+      let mockAddBreadcrumbEvent = vi.fn();
 
       const replay = {
         getCurrentRoute: () => 'test-route',
       } as ReplayContainer;
 
       beforeEach(() => {
-        jest.setSystemTime(BASE_TIMESTAMP);
+        vi.setSystemTime(BASE_TIMESTAMP);
 
-        mockAddBreadcrumbEvent = jest.fn();
+        mockAddBreadcrumbEvent = vi.fn();
 
         detector = new ClickDetector(
           replay,
@@ -302,14 +309,14 @@ describe('Unit | coreHandlers | handleClick', () => {
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(500);
+        vi.advanceTimersByTime(500);
 
-        // Pretend a mutation happend
+        // Pretend a mutation happened
         detector['_lastMutation'] = BASE_TIMESTAMP / 1000 + 0.5;
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(3_000);
+        vi.advanceTimersByTime(3_000);
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
       });
@@ -326,14 +333,14 @@ describe('Unit | coreHandlers | handleClick', () => {
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(1_000);
+        vi.advanceTimersByTime(1_000);
 
-        // Pretend a mutation happend
+        // Pretend a mutation happened
         detector['_lastMutation'] = BASE_TIMESTAMP / 1000 + 2;
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(3_000);
+        vi.advanceTimersByTime(3_000);
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledWith(replay, {
@@ -345,13 +352,13 @@ describe('Unit | coreHandlers | handleClick', () => {
             nodeId: 1,
             route: 'test-route',
             timeAfterClickMs: 2000,
-            url: 'http://localhost/',
+            url: 'http://localhost:3000/',
           },
           message: undefined,
           timestamp: expect.any(Number),
         });
 
-        jest.advanceTimersByTime(5_000);
+        vi.advanceTimersByTime(5_000);
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
       });
 
@@ -367,14 +374,14 @@ describe('Unit | coreHandlers | handleClick', () => {
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(1_000);
+        vi.advanceTimersByTime(1_000);
 
-        // Pretend a mutation happend
+        // Pretend a mutation happened
         detector['_lastMutation'] = BASE_TIMESTAMP / 1000 + 5;
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(5_000);
+        vi.advanceTimersByTime(5_000);
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledWith(replay, {
@@ -386,29 +393,29 @@ describe('Unit | coreHandlers | handleClick', () => {
             nodeId: 1,
             route: 'test-route',
             timeAfterClickMs: 3000,
-            url: 'http://localhost/',
+            url: 'http://localhost:3000/',
           },
           message: undefined,
           timestamp: expect.any(Number),
         });
 
-        jest.advanceTimersByTime(5_000);
+        vi.advanceTimersByTime(5_000);
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
       });
     });
 
     describe('scroll', () => {
       let detector: ClickDetector;
-      let mockAddBreadcrumbEvent = jest.fn();
+      let mockAddBreadcrumbEvent = vi.fn();
 
       const replay = {
         getCurrentRoute: () => 'test-route',
       } as ReplayContainer;
 
       beforeEach(() => {
-        jest.setSystemTime(BASE_TIMESTAMP);
+        vi.setSystemTime(BASE_TIMESTAMP);
 
-        mockAddBreadcrumbEvent = jest.fn();
+        mockAddBreadcrumbEvent = vi.fn();
 
         detector = new ClickDetector(
           replay,
@@ -434,14 +441,14 @@ describe('Unit | coreHandlers | handleClick', () => {
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(100);
+        vi.advanceTimersByTime(100);
 
-        // Pretend a mutation happend
+        // Pretend a mutation happened
         detector['_lastScroll'] = BASE_TIMESTAMP / 1000 + 0.15;
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(3_000);
+        vi.advanceTimersByTime(3_000);
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
       });
@@ -458,14 +465,14 @@ describe('Unit | coreHandlers | handleClick', () => {
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(300);
+        vi.advanceTimersByTime(300);
 
-        // Pretend a mutation happend
+        // Pretend a mutation happened
         detector['_lastScroll'] = BASE_TIMESTAMP / 1000 + 0.3;
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(0);
 
-        jest.advanceTimersByTime(3_000);
+        vi.advanceTimersByTime(3_000);
 
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledWith(replay, {
@@ -477,13 +484,13 @@ describe('Unit | coreHandlers | handleClick', () => {
             nodeId: 1,
             route: 'test-route',
             timeAfterClickMs: 3000,
-            url: 'http://localhost/',
+            url: 'http://localhost:3000/',
           },
           message: undefined,
           timestamp: expect.any(Number),
         });
 
-        jest.advanceTimersByTime(5_000);
+        vi.advanceTimersByTime(5_000);
         expect(mockAddBreadcrumbEvent).toHaveBeenCalledTimes(1);
       });
     });

@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * Rollup config docs: https://rollupjs.org/guide/en/#big-list-of-options
  */
@@ -14,9 +16,9 @@ import {
   makeCleanupPlugin,
   makeDebugBuildStatementReplacePlugin,
   makeExtractPolyfillsPlugin,
+  makeImportMetaUrlReplacePlugin,
   makeNodeResolvePlugin,
   makeRrwebBuildPlugin,
-  makeSetSDKSourcePlugin,
   makeSucrasePlugin,
 } from './plugins/index.mjs';
 import { makePackageNodeEsm } from './plugins/make-esm-plugin.mjs';
@@ -34,14 +36,15 @@ export function makeBaseNPMConfig(options = {}) {
     packageSpecificConfig = {},
     addPolyfills = true,
     sucrase = {},
+    bundledBuiltins = [],
   } = options;
 
   const nodeResolvePlugin = makeNodeResolvePlugin();
-  const sucrasePlugin = makeSucrasePlugin({ disableESTransforms: !addPolyfills, ...sucrase });
+  const sucrasePlugin = makeSucrasePlugin({}, { disableESTransforms: !addPolyfills, ...sucrase });
   const debugBuildStatementReplacePlugin = makeDebugBuildStatementReplacePlugin();
+  const importMetaUrlReplacePlugin = makeImportMetaUrlReplacePlugin();
   const cleanupPlugin = makeCleanupPlugin();
   const extractPolyfillsPlugin = makeExtractPolyfillsPlugin();
-  const setSdkSourcePlugin = makeSetSDKSourcePlugin('npm');
   const rrwebBuildPlugin = makeRrwebBuildPlugin({
     excludeShadowDom: undefined,
     excludeIframe: undefined,
@@ -102,16 +105,16 @@ export function makeBaseNPMConfig(options = {}) {
 
     plugins: [
       nodeResolvePlugin,
-      setSdkSourcePlugin,
       sucrasePlugin,
       debugBuildStatementReplacePlugin,
+      importMetaUrlReplacePlugin,
       rrwebBuildPlugin,
       cleanupPlugin,
     ],
 
     // don't include imported modules from outside the package in the final output
     external: [
-      ...builtinModules,
+      ...builtinModules.filter(m => !bundledBuiltins.includes(m)),
       ...Object.keys(packageDotJSON.dependencies || {}),
       ...Object.keys(packageDotJSON.peerDependencies || {}),
       ...Object.keys(packageDotJSON.optionalDependencies || {}),
@@ -135,7 +138,11 @@ export function makeNPMConfigVariants(baseConfig, options = {}) {
 
   if (emitEsm) {
     variantSpecificConfigs.push({
-      output: { format: 'esm', dir: path.join(baseConfig.output.dir, 'esm'), plugins: [makePackageNodeEsm()] },
+      output: {
+        format: 'esm',
+        dir: path.join(baseConfig.output.dir, 'esm'),
+        plugins: [makePackageNodeEsm()],
+      },
     });
   }
 

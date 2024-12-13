@@ -1,3 +1,9 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { useFakeTimers } from '../../../utils/use-fake-timers';
+
+useFakeTimers();
+
 import { _getResponseInfo } from '../../../../src/coreHandlers/util/fetchUtils';
 
 describe('Unit | coreHandlers | util | fetchUtils', () => {
@@ -112,18 +118,21 @@ describe('Unit | coreHandlers | util | fetchUtils', () => {
         text: () => new Promise(resolve => setTimeout(() => resolve('text body'), 1000)),
       } as unknown as Response;
 
-      const res = await _getResponseInfo(
-        true,
-        {
-          networkCaptureBodies: true,
-          networkResponseHeaders: [],
-        },
-        response,
-        undefined,
-      );
+      const [res] = await Promise.all([
+        _getResponseInfo(
+          true,
+          {
+            networkCaptureBodies: true,
+            networkResponseHeaders: [],
+          },
+          response,
+          undefined,
+        ),
+        vi.runAllTimersAsync(),
+      ]);
 
       expect(res).toEqual({
-        _meta: { warnings: ['BODY_PARSE_ERROR'] },
+        _meta: { warnings: ['BODY_PARSE_TIMEOUT'] },
         headers: {},
         size: undefined,
       });

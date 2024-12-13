@@ -1,10 +1,13 @@
 export type {
   Breadcrumb,
   BreadcrumbHint,
+  // eslint-disable-next-line deprecation/deprecation
   Request,
+  RequestEventData,
   SdkInfo,
   Event,
   EventHint,
+  ErrorEvent,
   Exception,
   SeverityLevel,
   StackFrame,
@@ -12,7 +15,7 @@ export type {
   Thread,
   User,
   Session,
-} from '@sentry/types';
+} from '@sentry/core';
 
 export type { BrowserOptions } from './client';
 
@@ -27,6 +30,7 @@ export {
   captureMessage,
   close,
   createTransport,
+  lastEventId,
   flush,
   // eslint-disable-next-line deprecation/deprecation
   getCurrentHub,
@@ -38,6 +42,7 @@ export {
   setCurrentClient,
   Scope,
   continueTrace,
+  suppressTracing,
   SDK_VERSION,
   setContext,
   setExtra,
@@ -56,6 +61,7 @@ export {
   endSession,
   spanToJSON,
   spanToTraceHeader,
+  spanToBaggageHeader,
 } from '@sentry/core';
 
 export {
@@ -64,8 +70,6 @@ export {
   SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
   SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE,
 } from '@sentry/core';
-
-export * from './metrics';
 
 export { WINDOW } from './helpers';
 export { BrowserClient } from './client';
@@ -87,6 +91,7 @@ export {
   init,
   onLoad,
   showReportDialog,
+  // eslint-disable-next-line deprecation/deprecation
   captureUserFeedback,
 } from './sdk';
 

@@ -2,10 +2,13 @@ export type {
   Breadcrumb,
   BreadcrumbHint,
   PolymorphicRequest,
+  // eslint-disable-next-line deprecation/deprecation
   Request,
+  RequestEventData,
   SdkInfo,
   Event,
   EventHint,
+  ErrorEvent,
   Exception,
   Session,
   SeverityLevel,
@@ -14,8 +17,8 @@ export type {
   Stacktrace,
   Thread,
   User,
-} from '@sentry/types';
-export type { AddRequestDataToEventOptions } from '@sentry/utils';
+} from '@sentry/core';
+export type { AddRequestDataToEventOptions } from '@sentry/core';
 
 export type { VercelEdgeOptions } from './types';
 
@@ -26,8 +29,10 @@ export {
   captureException,
   captureEvent,
   captureMessage,
+  captureFeedback,
   close,
   createTransport,
+  lastEventId,
   flush,
   getClient,
   isInitialized,
@@ -52,17 +57,30 @@ export {
   setMeasurement,
   getActiveSpan,
   getRootSpan,
+  getTraceData,
+  getTraceMetaTags,
   startSpan,
   startInactiveSpan,
   startSpanManual,
+  startNewTrace,
+  suppressTracing,
   withActiveSpan,
   getSpanDescendants,
   continueTrace,
+  // eslint-disable-next-line deprecation/deprecation
   metrics,
   functionToStringIntegration,
   inboundFiltersIntegration,
   linkedErrorsIntegration,
   requestDataIntegration,
+  extraErrorDataIntegration,
+  // eslint-disable-next-line deprecation/deprecation
+  debugIntegration,
+  dedupeIntegration,
+  rewriteFramesIntegration,
+  captureConsoleIntegration,
+  moduleMetadataIntegration,
+  zodErrorsIntegration,
   SEMANTIC_ATTRIBUTE_SENTRY_OP,
   SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
   SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
@@ -70,6 +88,7 @@ export {
   trpcMiddleware,
   spanToJSON,
   spanToTraceHeader,
+  spanToBaggageHeader,
 } from '@sentry/core';
 
 export { VercelEdgeClient } from './client';

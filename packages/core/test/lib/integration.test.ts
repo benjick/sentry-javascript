@@ -1,9 +1,9 @@
-import type { Integration, Options } from '@sentry/types';
-import { logger } from '@sentry/utils';
 import { getCurrentScope } from '../../src/currentScopes';
+import type { Integration, Options } from '../../src/types-hoist';
 
 import { addIntegration, getIntegrationsToSetup, installedIntegrations, setupIntegration } from '../../src/integration';
 import { setCurrentClient } from '../../src/sdk';
+import { logger } from '../../src/utils-hoist/logger';
 import { TestClient, getDefaultTestClientOptions } from '../mocks/client';
 
 function getTestClient(): TestClient {
@@ -35,7 +35,7 @@ type TestCase = [
   string, // test name
   Options['defaultIntegrations'], // default integrations
   Options['integrations'], // user-provided integrations
-  Array<string | string[]>, // expected resulst
+  Array<string | string[]>, // expected results
 ];
 
 describe('getIntegrationsToSetup', () => {
@@ -457,8 +457,16 @@ describe('setupIntegration', () => {
     expect(integration3.preprocessEvent).toHaveBeenCalledTimes(3);
     expect(integration4.preprocessEvent).toHaveBeenCalledTimes(0);
 
-    expect(integration1.preprocessEvent).toHaveBeenLastCalledWith({ event_id: '1b' }, {}, client1);
-    expect(integration3.preprocessEvent).toHaveBeenLastCalledWith({ event_id: '2c' }, {}, client2);
+    expect(integration1.preprocessEvent).toHaveBeenLastCalledWith(
+      { event_id: '1b' },
+      { event_id: expect.any(String) },
+      client1,
+    );
+    expect(integration3.preprocessEvent).toHaveBeenLastCalledWith(
+      { event_id: '2c' },
+      { event_id: expect.any(String) },
+      client2,
+    );
   });
 
   it('allows to mutate events in preprocessEvent', async () => {
@@ -484,7 +492,9 @@ describe('setupIntegration', () => {
     await client.flush();
 
     expect(sendEvent).toHaveBeenCalledTimes(1);
-    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({ event_id: 'mutated' }), {});
+    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({ event_id: 'mutated' }), {
+      event_id: expect.any(String),
+    });
   });
 
   it('binds processEvent for each client', () => {
@@ -531,12 +541,12 @@ describe('setupIntegration', () => {
 
     expect(integration1.processEvent).toHaveBeenLastCalledWith(
       expect.objectContaining({ event_id: '1b' }),
-      {},
+      { event_id: expect.any(String) },
       client1,
     );
     expect(integration3.processEvent).toHaveBeenLastCalledWith(
       expect.objectContaining({ event_id: '2c' }),
-      {},
+      { event_id: expect.any(String) },
       client2,
     );
   });
@@ -564,7 +574,9 @@ describe('setupIntegration', () => {
     await client.flush();
 
     expect(sendEvent).toHaveBeenCalledTimes(1);
-    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({ event_id: 'mutated' }), {});
+    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({ event_id: 'mutated' }), {
+      event_id: expect.any(String),
+    });
   });
 
   it('allows to drop events in processEvent', async () => {

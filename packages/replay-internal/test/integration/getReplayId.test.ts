@@ -1,3 +1,9 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { mockSdk } from '../mocks/mockSdk';
 import { useFakeTimers } from '../utils/use-fake-timers';
 
@@ -5,7 +11,7 @@ useFakeTimers();
 
 describe('Integration | getReplayId', () => {
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('works', async () => {

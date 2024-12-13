@@ -1,11 +1,11 @@
 import { Scope, getClient, setCurrentClient } from '@sentry/browser';
-import type { Client } from '@sentry/types';
+import type { Client } from '@sentry/core';
 import { fireEvent, render, screen } from '@testing-library/react';
 import * as React from 'react';
 import { useState } from 'react';
 
 import type { ErrorBoundaryProps } from '../src/errorboundary';
-import { ErrorBoundary, UNKNOWN_COMPONENT, isAtLeastReact17, withErrorBoundary } from '../src/errorboundary';
+import { ErrorBoundary, UNKNOWN_COMPONENT, withErrorBoundary } from '../src/errorboundary';
 
 const mockCaptureException = jest.fn();
 const mockShowReportDialog = jest.fn();
@@ -35,7 +35,7 @@ function Bam(): JSX.Element {
   return <Boo title={title} />;
 }
 
-function EffectSpyFallback({ error }: { error: Error }): JSX.Element {
+function EffectSpyFallback({ error }: { error: unknown }): JSX.Element {
   const [counter, setCounter] = useState(0);
 
   React.useEffect(() => {
@@ -44,7 +44,7 @@ function EffectSpyFallback({ error }: { error: Error }): JSX.Element {
 
   return (
     <span>
-      EffectSpyFallback {counter} - {error.message}
+      EffectSpyFallback {counter} - {(error as Error).message}
     </span>
   );
 }
@@ -53,8 +53,7 @@ interface TestAppProps extends ErrorBoundaryProps {
   errorComp?: JSX.Element;
 }
 
-const TestApp: React.FC<TestAppProps> = ({ children, errorComp, ...props }) => {
-  // eslint-disable-next-line no-param-reassign
+const TestApp: React.FC<TestAppProps> = ({ children, errorComp, ...props }): any => {
   const customErrorComp = errorComp || <Bam />;
   const [isError, setError] = React.useState(false);
   return (
@@ -273,7 +272,7 @@ describe('ErrorBoundary', () => {
       // Check if error.cause -> react component stack
       const error = mockCaptureException.mock.calls[0][0];
       const cause = error.cause;
-      expect(cause.stack).toEqual(mockCaptureException.mock.calls[0][1].captureContext.contexts.react.componentStack);
+      expect(cause.stack).toEqual(mockCaptureException.mock.calls[0][1]?.captureContext.contexts.react.componentStack);
       expect(cause.name).toContain('React ErrorBoundary');
       expect(cause.message).toEqual(error.message);
     });
@@ -371,7 +370,7 @@ describe('ErrorBoundary', () => {
       const secondError = thirdError.cause;
       const firstError = secondError.cause;
       const cause = firstError.cause;
-      expect(cause.stack).toEqual(mockCaptureException.mock.calls[0][1].captureContext.contexts.react.componentStack);
+      expect(cause.stack).toEqual(mockCaptureException.mock.calls[0][1]?.captureContext.contexts.react.componentStack);
       expect(cause.name).toContain('React ErrorBoundary');
       expect(cause.message).toEqual(thirdError.message);
     });
@@ -415,7 +414,7 @@ describe('ErrorBoundary', () => {
       const cause = error.cause;
       // We need to make sure that recursive error.cause does not cause infinite loop
       expect(cause.stack).not.toEqual(
-        mockCaptureException.mock.calls[0][1].captureContext.contexts.react.componentStack,
+        mockCaptureException.mock.calls[0][1]?.captureContext.contexts.react.componentStack,
       );
       expect(cause.name).not.toContain('React ErrorBoundary');
     });
@@ -580,18 +579,5 @@ describe('ErrorBoundary', () => {
         mechanism: { handled: false },
       });
     });
-  });
-});
-
-describe('isAtLeastReact17', () => {
-  test.each([
-    ['React 16', '16.0.4', false],
-    ['React 17', '17.0.0', true],
-    ['React 17 with no patch', '17.4', true],
-    ['React 17 with no patch and no minor', '17', true],
-    ['React 18', '18.1.0', true],
-    ['React 19', '19.0.0', true],
-  ])('%s', (_: string, input: string, output: ReturnType<typeof isAtLeastReact17>) => {
-    expect(isAtLeastReact17(input)).toBe(output);
   });
 });

@@ -175,6 +175,7 @@ export const ReplayRecordingData = [
           decodedBodySize: expect.any(Number),
           encodedBodySize: expect.any(Number),
           size: expect.any(Number),
+          statusCode: 200,
         },
       },
     },
@@ -211,14 +212,14 @@ export const ReplayRecordingData = [
     data: {
       tag: 'performanceSpan',
       payload: {
-        op: 'largest-contentful-paint',
+        op: 'web-vital',
         description: 'largest-contentful-paint',
         startTimestamp: expect.any(Number),
         endTimestamp: expect.any(Number),
         data: {
           value: expect.any(Number),
           size: expect.any(Number),
-          nodeId: 16,
+          nodeIds: [16],
         },
       },
     },

@@ -3,8 +3,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { escapeStringForRegex, loadModule, logger } from '@sentry/core';
 import { getSentryRelease } from '@sentry/node';
-import { arrayify, escapeStringForRegex, loadModule, logger } from '@sentry/utils';
 import * as chalk from 'chalk';
 import { sync as resolveSync } from 'resolve';
 
@@ -14,13 +14,13 @@ import type { VercelCronsConfig } from '../common/types';
 import type {
   BuildContext,
   EntryPropertyObject,
+  IgnoreWarningsOption,
   NextConfigObject,
   SentryBuildOptions,
   WebpackConfigFunction,
   WebpackConfigObject,
   WebpackConfigObjectWithModuleRules,
   WebpackEntryProperty,
-  WebpackModuleRule,
 } from './types';
 import { getWebpackPluginOptions } from './webpackPluginOptions';
 
@@ -37,7 +37,7 @@ let showedMissingGlobalErrorWarningMsg = false;
  *   - `plugins`, to add SentryWebpackPlugin
  *
  * @param userNextConfig The user's existing nextjs config, as passed to `withSentryConfig`
- * @param userSentryWebpackPluginOptions The user's SentryWebpackPlugin config, as passed to `withSentryConfig`
+ * @param userSentryOptions The user's SentryWebpackPlugin config, as passed to `withSentryConfig`
  * @returns The function to set as the nextjs config's `webpack` value
  */
 export function constructWebpackConfigFunction(
@@ -72,6 +72,8 @@ export function constructWebpackConfigFunction(
 
     // Add a loader which will inject code that sets global values
     addValueInjectionLoader(newConfig, userNextConfig, userSentryOptions, buildContext);
+
+    addOtelWarningIgnoreRule(newConfig);
 
     let pagesDirPath: string | undefined;
     const maybePagesDirPath = path.join(projectDir, 'pages');
@@ -145,7 +147,7 @@ export function constructWebpackConfigFunction(
       );
     };
 
-    const possibleMiddlewareLocations = ['js', 'jsx', 'ts', 'tsx'].map(middlewareFileEnding => {
+    const possibleMiddlewareLocations = pageExtensions.map(middlewareFileEnding => {
       return path.join(middlewareLocationFolder, `middleware.${middlewareFileEnding}`);
     });
     const isMiddlewareResource = (resourcePath: string): boolean => {
@@ -161,7 +163,10 @@ export function constructWebpackConfigFunction(
       return (
         appDirPath !== undefined &&
         normalizedAbsoluteResourcePath.startsWith(appDirPath + path.sep) &&
-        !!normalizedAbsoluteResourcePath.match(/[\\/](page|layout|loading|head|not-found)\.(js|jsx|tsx)$/)
+        !!normalizedAbsoluteResourcePath.match(
+          // eslint-disable-next-line @sentry-internal/sdk/no-regexp-constructor
+          new RegExp(`[\\\\/](page|layout|loading|head|not-found)\\.(${pageExtensionRegex})$`),
+        )
       );
     };
 
@@ -170,7 +175,10 @@ export function constructWebpackConfigFunction(
       return (
         appDirPath !== undefined &&
         normalizedAbsoluteResourcePath.startsWith(appDirPath + path.sep) &&
-        !!normalizedAbsoluteResourcePath.match(/[\\/]route\.(js|jsx|ts|tsx)$/)
+        !!normalizedAbsoluteResourcePath.match(
+          // eslint-disable-next-line @sentry-internal/sdk/no-regexp-constructor
+          new RegExp(`[\\\\/]route\\.(${pageExtensionRegex})$`),
+        )
       );
     };
 
@@ -283,51 +291,28 @@ export function constructWebpackConfigFunction(
     }
 
     if (appDirPath) {
-      const hasGlobalErrorFile = ['global-error.js', 'global-error.jsx', 'global-error.ts', 'global-error.tsx'].some(
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        globalErrorFile => fs.existsSync(path.join(appDirPath!, globalErrorFile)),
-      );
+      const hasGlobalErrorFile = pageExtensions
+        .map(extension => `global-error.${extension}`)
+        .some(
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          globalErrorFile => fs.existsSync(path.join(appDirPath!, globalErrorFile)),
+        );
 
-      if (!hasGlobalErrorFile && !showedMissingGlobalErrorWarningMsg) {
+      if (
+        !hasGlobalErrorFile &&
+        !showedMissingGlobalErrorWarningMsg &&
+        !process.env.SENTRY_SUPPRESS_GLOBAL_ERROR_HANDLER_FILE_WARNING
+      ) {
         // eslint-disable-next-line no-console
         console.log(
           `${chalk.yellow(
             'warn',
           )}  - It seems like you don't have a global error handler set up. It is recommended that you add a ${chalk.cyan(
             'global-error.js',
-          )} file with Sentry instrumentation so that React rendering errors are reported to Sentry. Read more: https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/#react-render-errors-in-app-router`,
+          )} file with Sentry instrumentation so that React rendering errors are reported to Sentry. Read more: https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/#react-render-errors-in-app-router (you can suppress this warning by setting SENTRY_SUPPRESS_GLOBAL_ERROR_HANDLER_FILE_WARNING=1 as environment variable)`,
         );
         showedMissingGlobalErrorWarningMsg = true;
       }
-    }
-
-    // TODO(v8): Remove this logic since we are deprecating es5.
-    // The SDK uses syntax (ES6 and ES6+ features like object spread) which isn't supported by older browsers. For users
-    // who want to support such browsers, `transpileClientSDK` allows them to force the SDK code to go through the same
-    // transpilation that their code goes through. We don't turn this on by default because it increases bundle size
-    // fairly massively.
-    if (!isServer && userSentryOptions?.transpileClientSDK) {
-      // Find all loaders which apply transpilation to user code
-      const transpilationRules = findTranspilationRules(newConfig.module?.rules, projectDir);
-
-      // For each matching rule, wrap its `exclude` function so that it won't exclude SDK files, even though they're in
-      // `node_modules` (which is otherwise excluded)
-      transpilationRules.forEach(rule => {
-        // All matching rules will necessarily have an `exclude` property, but this keeps TS happy
-        if (rule.exclude && typeof rule.exclude === 'function') {
-          const origExclude = rule.exclude;
-
-          const newExclude = (filepath: string): boolean => {
-            if (filepath.includes('@sentry')) {
-              // `false` in this case means "don't exclude it"
-              return false;
-            }
-            return origExclude(filepath);
-          };
-
-          rule.exclude = newExclude;
-        }
-      });
     }
 
     if (!isServer) {
@@ -347,15 +332,28 @@ export function constructWebpackConfigFunction(
     // Symbolication for dev-mode errors is done elsewhere.
     if (!isDev) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { sentryWebpackPlugin } = loadModule('@sentry/webpack-plugin') as any;
+      const { sentryWebpackPlugin } = loadModule<{ sentryWebpackPlugin: any }>('@sentry/webpack-plugin') ?? {};
+
       if (sentryWebpackPlugin) {
         if (!userSentryOptions.sourcemaps?.disable) {
+          // TODO(v9): Remove this warning and print warning in case source map deletion is auto configured
+          if (!isServer && !userSentryOptions.sourcemaps?.deleteSourcemapsAfterUpload) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              "[@sentry/nextjs] The Sentry SDK has enabled source map generation for your Next.js app. If you don't want to serve Source Maps to your users, either set the `deleteSourceMapsAfterUpload` option to true, or manually delete the source maps after the build. In future Sentry SDK versions `deleteSourceMapsAfterUpload` will default to `true`. If you do not want to generate and upload sourcemaps, set the `sourcemaps.disable` option in `withSentryConfig()`.",
+            );
+          }
+
           // `hidden-source-map` produces the same sourcemaps as `source-map`, but doesn't include the `sourceMappingURL`
           // comment at the bottom. For folks who aren't publicly hosting their sourcemaps, this is helpful because then
           // the browser won't look for them and throw errors into the console when it can't find them. Because this is a
           // front-end-only problem, and because `sentry-cli` handles sourcemaps more reliably with the comment than
           // without, the option to use `hidden-source-map` only applies to the client-side build.
-          newConfig.devtool = !isServer ? 'hidden-source-map' : 'source-map';
+          if (isServer || userNextConfig.productionBrowserSourceMaps) {
+            newConfig.devtool = 'source-map';
+          } else {
+            newConfig.devtool = 'hidden-source-map';
+          }
         }
 
         newConfig.plugins = newConfig.plugins || [];
@@ -379,72 +377,6 @@ export function constructWebpackConfigFunction(
 
     return newConfig;
   };
-}
-
-/**
- * Determine if this `module.rules` entry is one which will transpile user code
- *
- * @param rule The rule to check
- * @param projectDir The path to the user's project directory
- * @returns True if the rule transpiles user code, and false otherwise
- */
-function isMatchingRule(rule: WebpackModuleRule, projectDir: string): boolean {
-  // We want to run our SDK code through the same transformations the user's code will go through, so we test against a
-  // sample user code path
-  const samplePagePath = path.resolve(projectDir, 'pageFile.js');
-  if (rule.test && rule.test instanceof RegExp && !rule.test.test(samplePagePath)) {
-    return false;
-  }
-  if (Array.isArray(rule.include) && !rule.include.includes(projectDir)) {
-    return false;
-  }
-
-  // `rule.use` can be an object or an array of objects. For simplicity, force it to be an array.
-  const useEntries = arrayify(rule.use);
-
-  // Depending on the version of nextjs we're talking about, the loader which does the transpiling is either
-  //
-  //   'next-babel-loader' (next 10),
-  //   '/abs/path/to/node_modules/next/more/path/babel/even/more/path/loader/yet/more/path/index.js' (next 11), or
-  //   'next-swc-loader' (next 12).
-  //
-  // The next 11 option is ugly, but thankfully 'next', 'babel', and 'loader' do appear in it in the same order as in
-  // 'next-babel-loader', so we can use the same regex to test for both.
-  if (!useEntries.some(entry => entry?.loader && /next.*(babel|swc).*loader/.test(entry.loader))) {
-    return false;
-  }
-
-  return true;
-}
-
-/**
- * Find all rules in `module.rules` which transpile user code.
- *
- * @param rules The `module.rules` value
- * @param projectDir The path to the user's project directory
- * @returns An array of matching rules
- */
-function findTranspilationRules(rules: WebpackModuleRule[] | undefined, projectDir: string): WebpackModuleRule[] {
-  if (!rules) {
-    return [];
-  }
-
-  const matchingRules: WebpackModuleRule[] = [];
-
-  // Each entry in `module.rules` is either a rule in and of itself or an object with a `oneOf` property, whose value is
-  // an array of rules
-  rules.forEach(rule => {
-    // if (rule.oneOf) {
-    if (isMatchingRule(rule, projectDir)) {
-      matchingRules.push(rule);
-    } else if (rule.oneOf) {
-      const matchingOneOfRules = rule.oneOf.filter(oneOfRule => isMatchingRule(oneOfRule, projectDir));
-      matchingRules.push(...matchingOneOfRules);
-      // } else if (isMatchingRule(rule, projectDir)) {
-    }
-  });
-
-  return matchingRules;
 }
 
 /**
@@ -491,15 +423,39 @@ async function addSentryToClientEntryProperty(
 }
 
 /**
- * Searches for old `sentry.(server|edge).config.ts` files and warns if it finds any.
+ * Searches for old `sentry.(server|edge).config.ts` files and Next.js instrumentation hooks and warns if there are "old"
+ * config files and no signs of them inside the instrumentation hook.
  *
  * @param projectDir The root directory of the project, where config files would be located
  * @param platform Either "server" or "edge", so that we know which file to look for
  */
 function warnAboutDeprecatedConfigFiles(projectDir: string, platform: 'server' | 'edge'): void {
-  const possibilities = [`sentry.${platform}.config.ts`, `sentry.${platform}.config.js`];
+  const hasInstrumentationHookWithIndicationsOfSentry = [
+    ['src', 'instrumentation.ts'],
+    ['src', 'instrumentation.js'],
+    ['instrumentation.ts'],
+    ['instrumentation.js'],
+  ].some(potentialInstrumentationHookPathSegments => {
+    try {
+      const instrumentationHookContent = fs.readFileSync(
+        path.resolve(projectDir, ...potentialInstrumentationHookPathSegments),
+        { encoding: 'utf-8' },
+      );
 
-  for (const filename of possibilities) {
+      return (
+        instrumentationHookContent.includes('@sentry/') ||
+        instrumentationHookContent.match(/sentry\.(server|edge)\.config(\.(ts|js))?/)
+      );
+    } catch (e) {
+      return false;
+    }
+  });
+
+  if (hasInstrumentationHookWithIndicationsOfSentry) {
+    return;
+  }
+
+  for (const filename of [`sentry.${platform}.config.ts`, `sentry.${platform}.config.js`]) {
     if (fs.existsSync(path.resolve(projectDir, filename))) {
       // eslint-disable-next-line no-console
       console.warn(
@@ -546,7 +502,7 @@ function addFilesToWebpackEntryPoint(
   let newEntryPoint = currentEntryPoint;
 
   if (typeof currentEntryPoint === 'string' || Array.isArray(currentEntryPoint)) {
-    newEntryPoint = arrayify(currentEntryPoint);
+    newEntryPoint = Array.isArray(currentEntryPoint) ? currentEntryPoint : [currentEntryPoint];
     if (newEntryPoint.some(entry => filesToInsert.includes(entry))) {
       return;
     }
@@ -562,7 +518,7 @@ function addFilesToWebpackEntryPoint(
   // descriptor object (webpack 5+)
   else if (typeof currentEntryPoint === 'object' && 'import' in currentEntryPoint) {
     const currentImportValue = currentEntryPoint.import;
-    const newImportValue = arrayify(currentImportValue);
+    const newImportValue = Array.isArray(currentImportValue) ? currentImportValue : [currentImportValue];
     if (newImportValue.some(entry => filesToInsert.includes(entry))) {
       return;
     }
@@ -592,7 +548,9 @@ function addFilesToWebpackEntryPoint(
     );
   }
 
-  entryProperty[entryPointName] = newEntryPoint;
+  if (newEntryPoint) {
+    entryProperty[entryPointName] = newEntryPoint;
+  }
 }
 
 /**
@@ -615,6 +573,8 @@ function setUpModuleRules(newConfig: WebpackConfigObject): WebpackConfigObjectWi
 /**
  * Adds loaders to inject values on the global object based on user configuration.
  */
+// TODO(v9): Remove this loader and replace it with a nextConfig.env (https://web.archive.org/web/20240917153554/https://nextjs.org/docs/app/api-reference/next-config-js/env) or define based (https://github.com/vercel/next.js/discussions/71476) approach.
+// In order to remove this loader though we need to make sure the minimum supported Next.js version includes this PR (https://github.com/vercel/next.js/pull/61194), otherwise the nextConfig.env based approach will not work, as our SDK code is not processed by Next.js.
 function addValueInjectionLoader(
   newConfig: WebpackConfigObjectWithModuleRules,
   userNextConfig: NextConfigObject,
@@ -625,7 +585,7 @@ function addValueInjectionLoader(
 
   const isomorphicValues = {
     // `rewritesTunnel` set by the user in Next.js config
-    __sentryRewritesTunnelPath__:
+    _sentryRewritesTunnelPath:
       userSentryOptions.tunnelRoute !== undefined && userNextConfig.output !== 'export'
         ? `${userNextConfig.basePath ?? ''}${userSentryOptions.tunnelRoute}`
         : undefined,
@@ -635,21 +595,21 @@ function addValueInjectionLoader(
     SENTRY_RELEASE: buildContext.dev
       ? undefined
       : { id: userSentryOptions.release?.name ?? getSentryRelease(buildContext.buildId) },
-    __sentryBasePath: buildContext.dev ? userNextConfig.basePath : undefined,
+    _sentryBasePath: buildContext.dev ? userNextConfig.basePath : undefined,
   };
 
   const serverValues = {
     ...isomorphicValues,
     // Make sure that if we have a windows path, the backslashes are interpreted as such (rather than as escape
     // characters)
-    __rewriteFramesDistDir__: userNextConfig.distDir?.replace(/\\/g, '\\\\') || '.next',
+    _sentryRewriteFramesDistDir: userNextConfig.distDir?.replace(/\\/g, '\\\\') || '.next',
   };
 
   const clientValues = {
     ...isomorphicValues,
     // Get the path part of `assetPrefix`, minus any trailing slash. (We use a placeholder for the origin if
     // `assetPrefix` doesn't include one. Since we only care about the path, it doesn't matter what it is.)
-    __rewriteFramesAssetPrefixPath__: assetPrefix
+    _sentryRewriteFramesAssetPrefixPath: assetPrefix
       ? new URL(assetPrefix, 'http://dogs.are.great').pathname.replace(/\/$/, '')
       : '',
   };
@@ -698,6 +658,12 @@ const POTENTIAL_REQUEST_ASYNC_STORAGE_LOCATIONS = [
   // Introduced in Next.js 13.4.20
   // https://github.com/vercel/next.js/blob/e1bc270830f2fc2df3542d4ef4c61b916c802df3/packages/next/src/client/components/request-async-storage.external.ts
   'next/dist/client/components/request-async-storage.external.js',
+  // Introduced in Next.js 15.0.0-canary.180
+  // https://github.com/vercel/next.js/blob/541167b9b0fed6af9f36472e632863ffec41f18c/packages/next/src/server/app-render/work-unit-async-storage.external.ts
+  'next/dist/server/app-render/work-unit-async-storage.external.js',
+  // Introduced in Next.js 15.0.0-canary.182
+  // https://github.com/vercel/next.js/blob/f35159e5e80138ca7373f57b47edcaae3bcf1728/packages/next/src/client/components/work-unit-async-storage.external.ts
+  'next/dist/client/components/work-unit-async-storage.external.js',
 ];
 
 function getRequestAsyncStorageModuleLocation(
@@ -725,4 +691,36 @@ function getRequestAsyncStorageModuleLocation(
   }
 
   return undefined;
+}
+
+function addOtelWarningIgnoreRule(newConfig: WebpackConfigObjectWithModuleRules): void {
+  const ignoreRules = [
+    // Inspired by @matmannion: https://github.com/getsentry/sentry-javascript/issues/12077#issuecomment-2180307072
+    (warning, compilation) => {
+      // This is wrapped in try-catch because we are vendoring types for this hook and we can't be 100% sure that we are accessing API that is there
+      try {
+        if (!warning.module) {
+          return false;
+        }
+
+        const isDependencyThatMayRaiseCriticalDependencyMessage =
+          /@opentelemetry\/instrumentation/.test(warning.module.readableIdentifier(compilation.requestShortener)) ||
+          /@prisma\/instrumentation/.test(warning.module.readableIdentifier(compilation.requestShortener));
+        const isCriticalDependencyMessage = /Critical dependency/.test(warning.message);
+
+        return isDependencyThatMayRaiseCriticalDependencyMessage && isCriticalDependencyMessage;
+      } catch {
+        return false;
+      }
+    },
+    // We provide these objects in addition to the hook above to provide redundancy in case the hook fails.
+    { module: /@opentelemetry\/instrumentation/, message: /Critical dependency/ },
+    { module: /@prisma\/instrumentation/, message: /Critical dependency/ },
+  ] satisfies IgnoreWarningsOption;
+
+  if (newConfig.ignoreWarnings === undefined) {
+    newConfig.ignoreWarnings = ignoreRules;
+  } else if (Array.isArray(newConfig.ignoreWarnings)) {
+    newConfig.ignoreWarnings.push(...ignoreRules);
+  }
 }

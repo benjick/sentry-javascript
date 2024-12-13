@@ -1,5 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { getClient, getCurrentScope, setCurrentClient } from '@sentry/core';
-import type { ReplayEvent } from '@sentry/types';
+import type { ReplayEvent } from '@sentry/core';
 
 import { REPLAY_EVENT_NAME } from '../../../src/constants';
 import { prepareReplayEvent } from '../../../src/util/prepareReplayEvent';
@@ -11,7 +13,7 @@ describe('Unit | util | prepareReplayEvent', () => {
     setCurrentClient(client);
     client.init();
 
-    jest.spyOn(client, 'getSdkMetadata').mockImplementation(() => {
+    vi.spyOn(client, 'getSdkMetadata').mockImplementation(() => {
       return {
         sdk: {
           name: 'sentry.javascript.testSdk',
@@ -22,7 +24,7 @@ describe('Unit | util | prepareReplayEvent', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('works', async () => {

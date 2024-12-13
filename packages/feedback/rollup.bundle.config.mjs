@@ -1,19 +1,8 @@
 import { makeBaseBundleConfig, makeBundleConfigVariants } from '@sentry-internal/rollup-utils';
 
 export default [
-  ...makeBundleConfigVariants(
-    makeBaseBundleConfig({
-      bundleType: 'addon',
-      entrypoints: ['src/index.bundle.ts'],
-      jsVersion: 'es6',
-      licenseTitle: '@sentry-internal/feedback',
-      outputFileBase: () => 'bundles/feedback',
-      sucrase: {
-        jsxPragma: 'h',
-        jsxFragmentPragma: 'Fragment',
-      },
-    }),
-  ),
+  // The core `feedback` bundle is built in the browser package
+  // Sub-bundles are built here
   ...makeBundleConfigVariants(
     makeBaseBundleConfig({
       bundleType: 'addon',
@@ -22,8 +11,11 @@ export default [
       licenseTitle: '@sentry-internal/feedback',
       outputFileBase: () => 'bundles/feedback-screenshot',
       sucrase: {
+        // The feedback widget is using preact so we need different pragmas and jsx runtimes
         jsxPragma: 'h',
         jsxFragmentPragma: 'Fragment',
+        jsxRuntime: 'classic',
+        production: true,
       },
     }),
   ),
@@ -35,8 +27,11 @@ export default [
       licenseTitle: '@sentry-internal/feedback',
       outputFileBase: () => 'bundles/feedback-modal',
       sucrase: {
+        // The feedback widget is using preact so we need different pragmas and jsx runtimes
         jsxPragma: 'h',
         jsxFragmentPragma: 'Fragment',
+        jsxRuntime: 'classic',
+        production: true,
       },
     }),
   ),

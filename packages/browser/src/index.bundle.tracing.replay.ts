@@ -1,13 +1,10 @@
-import {
-  feedbackIntegrationShim,
-  feedbackModalIntegrationShim,
-  feedbackScreenshotIntegrationShim,
-} from '@sentry-internal/integration-shims';
 import { registerSpanErrorInstrumentation } from '@sentry/core';
 
 registerSpanErrorInstrumentation();
 
 export * from './index.bundle.base';
+
+export * from './metrics';
 
 export {
   getActiveSpan,
@@ -15,6 +12,7 @@ export {
   startSpan,
   startInactiveSpan,
   startSpanManual,
+  startNewTrace,
   withActiveSpan,
   getSpanDescendants,
   setMeasurement,
@@ -26,10 +24,7 @@ export {
   startBrowserTracingPageLoadSpan,
 } from './tracing/browserTracingIntegration';
 
-export {
-  feedbackIntegrationShim as feedbackIntegration,
-  feedbackModalIntegrationShim as feedbackModalIntegration,
-  feedbackScreenshotIntegrationShim as feedbackScreenshotIntegration,
-};
+import { feedbackIntegrationShim } from '@sentry-internal/integration-shims';
+export { feedbackIntegrationShim as feedbackAsyncIntegration, feedbackIntegrationShim as feedbackIntegration };
 
-export { replayIntegration } from '@sentry-internal/replay';
+export { replayIntegration, getReplay } from '@sentry-internal/replay';

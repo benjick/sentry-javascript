@@ -1,9 +1,9 @@
 import { expect } from '@playwright/test';
 
-import { sentryTest } from '../../../utils/fixtures';
+import { TEST_HOST, sentryTest } from '../../../utils/fixtures';
 import { envelopeRequestParser, getEnvelopeType, shouldSkipFeedbackTest } from '../../../utils/helpers';
 
-sentryTest('should capture feedback', async ({ getLocalTestPath, page }) => {
+sentryTest('should capture feedback', async ({ getLocalTestUrl, page }) => {
   if (shouldSkipFeedbackTest()) {
     sentryTest.skip();
   }
@@ -23,15 +23,7 @@ sentryTest('should capture feedback', async ({ getLocalTestPath, page }) => {
     }
   });
 
-  await page.route('https://dsn.ingest.sentry.io/**/*', route => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'test-id' }),
-    });
-  });
-
-  const url = await getLocalTestPath({ testDir: __dirname });
+  const url = await getLocalTestUrl({ testDir: __dirname, handleLazyLoadedFeedback: true });
 
   await page.goto(url);
   await page.getByText('Report a Bug').click();
@@ -51,10 +43,17 @@ sentryTest('should capture feedback', async ({ getLocalTestPath, page }) => {
         message: 'my example feedback',
         name: 'Jane Doe',
         source: 'widget',
-        url: expect.stringContaining('/dist/index.html'),
+        url: `${TEST_HOST}/index.html`,
+      },
+      trace: {
+        trace_id: expect.stringMatching(/\w{32}/),
+        span_id: expect.stringMatching(/\w{16}/),
       },
     },
     level: 'info',
+    tags: {
+      from: 'integration init',
+    },
     timestamp: expect.any(Number),
     event_id: expect.stringMatching(/\w{32}/),
     environment: 'production',
@@ -65,7 +64,7 @@ sentryTest('should capture feedback', async ({ getLocalTestPath, page }) => {
       packages: expect.anything(),
     },
     request: {
-      url: expect.stringContaining('/dist/index.html'),
+      url: `${TEST_HOST}/index.html`,
       headers: {
         'User-Agent': expect.stringContaining(''),
       },

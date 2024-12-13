@@ -1,4 +1,3 @@
-import type { Client, EventHint, Hub, Integration, IntegrationClass, SeverityLevel } from '@sentry/types';
 import { addBreadcrumb } from './breadcrumbs';
 import { getClient, getCurrentScope, getIsolationScope, withScope } from './currentScopes';
 import {
@@ -12,6 +11,7 @@ import {
   setUser,
   startSession,
 } from './exports';
+import type { Client, EventHint, Hub, Integration, IntegrationClass, SeverityLevel } from './types-hoist';
 
 /**
  * This is for legacy reasons, and returns a proxy object instead of a hub to be used.
@@ -54,14 +54,11 @@ export function getCurrentHubShim(): Hub {
     },
 
     startSession,
-
     endSession,
-
-    captureSession(endSession?: boolean): void {
+    captureSession(end?: boolean): void {
       // both send the update and pull the session from the scope
-      if (endSession) {
-        // eslint-disable-next-line deprecation/deprecation
-        return this.endSession();
+      if (end) {
+        return endSession();
       }
 
       // only send the update

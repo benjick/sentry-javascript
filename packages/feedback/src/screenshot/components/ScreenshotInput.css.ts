@@ -1,20 +1,15 @@
-import { CROP_COLOR, DOCUMENT } from '../../constants';
+import { DOCUMENT } from '../../constants';
 
 /**
  * Creates <style> element for widget dialog
  */
-export function createScreenshotInputStyles(): HTMLStyleElement {
+export function createScreenshotInputStyles(styleNonce?: string): HTMLStyleElement {
   const style = DOCUMENT.createElement('style');
 
   const surface200 = '#1A141F';
   const gray100 = '#302735';
 
   style.textContent = `
-.dialog__content:has(.editor) {
-  top: var(--bottom);
-  left: var(--right);
-}
-
 .editor {
   padding: 10px;
   padding-top: 65px;
@@ -42,19 +37,21 @@ export function createScreenshotInputStyles(): HTMLStyleElement {
   width: 100%;
   height: 100%;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .editor__canvas-container canvas {
-  width: 100%;
-  height: 100%;
   object-fit: contain;
+  position: relative;
 }
 
 .editor__crop-btn-group {
   padding: 8px;
   gap: 8px;
-  border-radius: var(--form-content-border-radius);
-  background-color: var(--background);
+  border-radius: var(--menu-border-radius, 6px);
+  background: var(--button-primary-background, var(--background));
   width: 175px;
   position: absolute;
 }
@@ -64,7 +61,7 @@ export function createScreenshotInputStyles(): HTMLStyleElement {
   height: 30px;
   position: absolute;
   background: none;
-  border: 3px solid ${CROP_COLOR};
+  border: 3px solid #ffffff;
 }
 
 .editor__crop-corner--top-left {
@@ -88,6 +85,10 @@ export function createScreenshotInputStyles(): HTMLStyleElement {
   border-top: none;
 }
 `;
+
+  if (styleNonce) {
+    style.setAttribute('nonce', styleNonce);
+  }
 
   return style;
 }

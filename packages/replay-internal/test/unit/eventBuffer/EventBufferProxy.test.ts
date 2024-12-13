@@ -1,4 +1,11 @@
+/**
+ * @vitest-environment jsdom
+ */
+
 import 'jsdom-worker';
+
+import type { MockInstance } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BASE_TIMESTAMP } from '../..';
 import { EventBufferProxy } from '../../../src/eventBuffer/EventBufferProxy';
@@ -9,11 +16,11 @@ import { createEventBuffer } from './../../../src/eventBuffer';
 const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
 
 describe('Unit | eventBuffer | EventBufferProxy', () => {
-  let consoleErrorSpy: jest.SpyInstance<any>;
+  let consoleErrorSpy: MockInstance<any>;
 
   beforeEach(() => {
     // Avoid logging errors to console
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {

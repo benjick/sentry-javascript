@@ -1,9 +1,15 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { shouldFilterRequest } from '../../src/util/shouldFilterRequest';
 import { mockSdk } from '../index';
 
 describe('Integration | shouldFilterRequest', () => {
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
   });
 
   it('should not filter requests from non-Sentry ingest URLs', async () => {

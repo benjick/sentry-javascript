@@ -1,4 +1,10 @@
+/**
+ * @vitest-environment jsdom
+ */
+
 import 'jsdom-worker';
+
+import { describe, expect, it, vi } from 'vitest';
 
 import { BASE_TIMESTAMP } from '../..';
 import { REPLAY_MAX_EVENT_BUFFER_SIZE } from '../../../src/constants';
@@ -120,7 +126,7 @@ describe('Unit | eventBuffer | EventBufferCompressionWorker', () => {
     await buffer.addEvent(TEST_EVENT);
 
     // @ts-expect-error Mock this private so it triggers an error
-    jest.spyOn(buffer._compression._worker, 'postMessage').mockImplementationOnce(() => {
+    vi.spyOn(buffer._compression._worker, 'postMessage').mockImplementationOnce(() => {
       return Promise.reject('test worker error');
     });
 
@@ -141,7 +147,7 @@ describe('Unit | eventBuffer | EventBufferCompressionWorker', () => {
     await buffer.addEvent({ data: { o: 2 }, timestamp: BASE_TIMESTAMP, type: 3 });
 
     // @ts-expect-error Mock this private so it triggers an error
-    jest.spyOn(buffer._compression._worker, 'postMessage').mockImplementationOnce(() => {
+    vi.spyOn(buffer._compression._worker, 'postMessage').mockImplementationOnce(() => {
       return Promise.reject('test worker error');
     });
 

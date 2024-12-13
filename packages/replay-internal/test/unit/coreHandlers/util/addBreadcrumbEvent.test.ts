@@ -1,13 +1,20 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { BASE_TIMESTAMP } from '../../..';
 import { addBreadcrumbEvent } from '../../../../src/coreHandlers/util/addBreadcrumbEvent';
 import type { EventBufferArray } from '../../../../src/eventBuffer/EventBufferArray';
 import { setupReplayContainer } from '../../../utils/setupReplayContainer';
+import { useFakeTimers } from '../../../utils/use-fake-timers';
 
-jest.useFakeTimers();
+useFakeTimers();
 
 describe('Unit | coreHandlers | util | addBreadcrumbEvent', function () {
   beforeEach(function () {
-    jest.setSystemTime(BASE_TIMESTAMP);
+    vi.setSystemTime(BASE_TIMESTAMP);
   });
 
   it('handles circular references', async () => {
@@ -22,12 +29,6 @@ describe('Unit | coreHandlers | util | addBreadcrumbEvent', function () {
 
     const replay = setupReplayContainer();
     addBreadcrumbEvent(replay, breadcrumb);
-
-    await undefined;
-    await undefined;
-    await undefined;
-    await undefined;
-    await undefined;
 
     expect((replay.eventBuffer as EventBufferArray).events).toEqual([
       {

@@ -1,3 +1,10 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { getClient } from '@sentry/core';
 import { resetSdkMock } from '../mocks/resetSdkMock';
 import { useFakeTimers } from '../utils/use-fake-timers';
 
@@ -5,7 +12,7 @@ useFakeTimers();
 
 describe('Integration | sampling', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('does nothing if not sampled', async () => {
@@ -20,8 +27,8 @@ describe('Integration | sampling', () => {
     });
 
     // @ts-expect-error private API
-    const spyAddListeners = jest.spyOn(replay, '_addListeners');
-    jest.runAllTimers();
+    const spyAddListeners = vi.spyOn(replay, '_addListeners');
+    vi.runAllTimers();
 
     expect(replay.session).toBe(undefined);
     expect(replay.eventBuffer).toBeNull();
@@ -55,12 +62,11 @@ describe('Integration | sampling', () => {
     });
 
     // @ts-expect-error private API
-    const spyAddListeners = jest.spyOn(replay, '_addListeners');
+    const spyAddListeners = vi.spyOn(replay, '_addListeners');
 
-    // @ts-expect-error protected
-    integration._initialize();
+    integration['_initialize'](getClient()!);
 
-    jest.runAllTimers();
+    vi.runAllTimers();
 
     expect(replay.session?.id).toBeDefined();
     expect(replay.eventBuffer).toBeDefined();
@@ -70,9 +76,9 @@ describe('Integration | sampling', () => {
     expect(replay.getContext()).toEqual({
       errorIds: new Set(),
       initialTimestamp: expect.any(Number),
-      initialUrl: 'http://localhost/',
+      initialUrl: 'http://localhost:3000/',
       traceIds: new Set(),
-      urls: ['http://localhost/'],
+      urls: ['http://localhost:3000/'],
     });
     expect(replay.recordingMode).toBe('buffer');
 

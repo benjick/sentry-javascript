@@ -1,9 +1,21 @@
+import { getClient, getCurrentScope } from '../currentScopes';
+import { DEBUG_BUILD } from '../debug-build';
+import { createSpanEnvelope } from '../envelope';
+import { getMetricSummaryJsonForSpan } from '../metrics/metric-summary';
+import {
+  SEMANTIC_ATTRIBUTE_EXCLUSIVE_TIME,
+  SEMANTIC_ATTRIBUTE_PROFILE_ID,
+  SEMANTIC_ATTRIBUTE_SENTRY_OP,
+  SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
+  SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
+} from '../semanticAttributes';
 import type {
   SentrySpanArguments,
   Span,
   SpanAttributeValue,
   SpanAttributes,
   SpanContextData,
+  SpanEnvelope,
   SpanJSON,
   SpanOrigin,
   SpanStatus,
@@ -11,17 +23,11 @@ import type {
   TimedEvent,
   TransactionEvent,
   TransactionSource,
-} from '@sentry/types';
-import { dropUndefinedKeys, logger, timestampInSeconds, uuid4 } from '@sentry/utils';
-import { getClient, getCurrentScope } from '../currentScopes';
-import { DEBUG_BUILD } from '../debug-build';
-
-import { getMetricSummaryJsonForSpan } from '../metrics/metric-summary';
-import {
-  SEMANTIC_ATTRIBUTE_SENTRY_OP,
-  SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
-  SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
-} from '../semanticAttributes';
+} from '../types-hoist';
+import { logger } from '../utils-hoist/logger';
+import { dropUndefinedKeys } from '../utils-hoist/object';
+import { generateSpanId, generateTraceId } from '../utils-hoist/propagationContext';
+import { timestampInSeconds } from '../utils-hoist/time';
 import {
   TRACE_FLAG_NONE,
   TRACE_FLAG_SAMPLED,
@@ -30,12 +36,14 @@ import {
   getStatusMessage,
   spanTimeInputToSeconds,
   spanToJSON,
-  spanToTraceContext,
+  spanToTransactionTraceContext,
 } from '../utils/spanUtils';
 import { getDynamicSamplingContextFromSpan } from './dynamicSamplingContext';
 import { logSpanEnd } from './logSpans';
 import { timedEventsToMeasurements } from './measurement';
 import { getCapturedScopesOnSpan } from './utils';
+
+const MAX_SPAN_COUNT = 1000;
 
 /**
  * Span contains all data about a span
@@ -56,6 +64,9 @@ export class SentrySpan implements Span {
   /** The timed events added to this span. */
   protected _events: TimedEvent[];
 
+  /** if true, treat span as a standalone span (not part of a transaction) */
+  private _isStandaloneSpan?: boolean;
+
   /**
    * You should never call the constructor manually, always use `Sentry.startSpan()`
    * or other span methods.
@@ -64,8 +75,8 @@ export class SentrySpan implements Span {
    * @hidden
    */
   public constructor(spanContext: SentrySpanArguments = {}) {
-    this._traceId = spanContext.traceId || uuid4();
-    this._spanId = spanContext.spanId || uuid4().substring(16);
+    this._traceId = spanContext.traceId || generateTraceId();
+    this._spanId = spanContext.spanId || generateSpanId();
     this._startTime = spanContext.startTimestamp || timestampInSeconds();
 
     this._attributes = {};
@@ -90,10 +101,45 @@ export class SentrySpan implements Span {
 
     this._events = [];
 
+    this._isStandaloneSpan = spanContext.isStandalone;
+
     // If the span is already ended, ensure we finalize the span immediately
     if (this._endTime) {
       this._onSpanEnded();
     }
+  }
+
+  /**
+   * This should generally not be used,
+   * but it is needed for being compliant with the OTEL Span interface.
+   *
+   * @hidden
+   * @internal
+   */
+  public addLink(_link: unknown): this {
+    return this;
+  }
+
+  /**
+   * This should generally not be used,
+   * but it is needed for being compliant with the OTEL Span interface.
+   *
+   * @hidden
+   * @internal
+   */
+  public addLinks(_links: unknown[]): this {
+    return this;
+  }
+
+  /**
+   * This should generally not be used,
+   * but it is needed for being compliant with the OTEL Span interface.
+   *
+   * @hidden
+   * @internal
+   */
+  public recordException(_exception: unknown, _time?: number | undefined): void {
+    // noop
   }
 
   /** @inheritdoc */
@@ -107,18 +153,21 @@ export class SentrySpan implements Span {
   }
 
   /** @inheritdoc */
-  public setAttribute(key: string, value: SpanAttributeValue | undefined): void {
+  public setAttribute(key: string, value: SpanAttributeValue | undefined): this {
     if (value === undefined) {
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete this._attributes[key];
     } else {
       this._attributes[key] = value;
     }
+
+    return this;
   }
 
   /** @inheritdoc */
-  public setAttributes(attributes: SpanAttributes): void {
+  public setAttributes(attributes: SpanAttributes): this {
     Object.keys(attributes).forEach(key => this.setAttribute(key, attributes[key]));
+    return this;
   }
 
   /**
@@ -146,6 +195,7 @@ export class SentrySpan implements Span {
    */
   public updateName(name: string): this {
     this._name = name;
+    this.setAttribute(SEMANTIC_ATTRIBUTE_SENTRY_SOURCE, 'custom');
     return this;
   }
 
@@ -183,6 +233,11 @@ export class SentrySpan implements Span {
       trace_id: this._traceId,
       origin: this._attributes[SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN] as SpanOrigin | undefined,
       _metrics_summary: getMetricSummaryJsonForSpan(this),
+      profile_id: this._attributes[SEMANTIC_ATTRIBUTE_PROFILE_ID] as string | undefined,
+      exclusive_time: this._attributes[SEMANTIC_ATTRIBUTE_EXCLUSIVE_TIME] as number | undefined,
+      measurements: timedEventsToMeasurements(this._events),
+      is_segment: (this._isStandaloneSpan && getRootSpan(this) === this) || undefined,
+      segment_id: this._isStandaloneSpan ? getRootSpan(this).spanContext().spanId : undefined,
     });
   }
 
@@ -215,6 +270,18 @@ export class SentrySpan implements Span {
     return this;
   }
 
+  /**
+   * This method should generally not be used,
+   * but for now we need a way to publicly check if the `_isStandaloneSpan` flag is set.
+   * USE THIS WITH CAUTION!
+   * @internal
+   * @hidden
+   * @experimental
+   */
+  public isStandaloneSpan(): boolean {
+    return !!this._isStandaloneSpan;
+  }
+
   /** Emit `spanEnd` when the span is ended. */
   private _onSpanEnded(): void {
     const client = getClient();
@@ -222,13 +289,33 @@ export class SentrySpan implements Span {
       client.emit('spanEnd', this);
     }
 
-    // If this is a root span, send it when it is endedf
-    if (this === getRootSpan(this)) {
-      const transactionEvent = this._convertSpanToTransaction();
-      if (transactionEvent) {
-        const scope = getCapturedScopesOnSpan(this).scope || getCurrentScope();
-        scope.captureEvent(transactionEvent);
+    // A segment span is basically the root span of a local span tree.
+    // So for now, this is either what we previously refer to as the root span,
+    // or a standalone span.
+    const isSegmentSpan = this._isStandaloneSpan || this === getRootSpan(this);
+
+    if (!isSegmentSpan) {
+      return;
+    }
+
+    // if this is a standalone span, we send it immediately
+    if (this._isStandaloneSpan) {
+      if (this._sampled) {
+        sendSpanEnvelope(createSpanEnvelope([this], client));
+      } else {
+        DEBUG_BUILD &&
+          logger.log('[Tracing] Discarding standalone span because its trace was not chosen to be sampled.');
+        if (client) {
+          client.recordDroppedEvent('sample_rate', 'span');
+        }
       }
+      return;
+    }
+
+    const transactionEvent = this._convertSpanToTransaction();
+    if (transactionEvent) {
+      const scope = getCapturedScopesOnSpan(this).scope || getCurrentScope();
+      scope.captureEvent(transactionEvent);
     }
   }
 
@@ -261,8 +348,8 @@ export class SentrySpan implements Span {
       return undefined;
     }
 
-    // The transaction span itself should be filtered out
-    const finishedSpans = getSpanDescendants(this).filter(span => span !== this);
+    // The transaction span itself as well as any potential standalone spans should be filtered out
+    const finishedSpans = getSpanDescendants(this).filter(span => span !== this && !isStandaloneSpan(span));
 
     const spans = finishedSpans.map(span => spanToJSON(span)).filter(isFullFinishedSpan);
 
@@ -270,9 +357,14 @@ export class SentrySpan implements Span {
 
     const transaction: TransactionEvent = {
       contexts: {
-        trace: spanToTraceContext(this),
+        trace: spanToTransactionTraceContext(this),
       },
-      spans,
+      spans:
+        // spans.sort() mutates the array, but `spans` is already a copy so we can safely do this here
+        // we do not use spans anymore after this point
+        spans.length > MAX_SPAN_COUNT
+          ? spans.sort((a, b) => a.start_timestamp - b.start_timestamp).slice(0, MAX_SPAN_COUNT)
+          : spans,
       start_timestamp: this._startTime,
       timestamp: this._endTime,
       transaction: this._name,
@@ -293,11 +385,14 @@ export class SentrySpan implements Span {
     };
 
     const measurements = timedEventsToMeasurements(this._events);
-    const hasMeasurements = Object.keys(measurements).length;
+    const hasMeasurements = measurements && Object.keys(measurements).length;
 
     if (hasMeasurements) {
       DEBUG_BUILD &&
-        logger.log('[Measurements] Adding measurements to transaction', JSON.stringify(measurements, undefined, 2));
+        logger.log(
+          '[Measurements] Adding measurements to transaction event',
+          JSON.stringify(measurements, undefined, 2),
+        );
       transaction.measurements = measurements;
     }
 
@@ -312,4 +407,32 @@ function isSpanTimeInput(value: undefined | SpanAttributes | SpanTimeInput): val
 // We want to filter out any incomplete SpanJSON objects
 function isFullFinishedSpan(input: Partial<SpanJSON>): input is SpanJSON {
   return !!input.start_timestamp && !!input.timestamp && !!input.span_id && !!input.trace_id;
+}
+
+/** `SentrySpan`s can be sent as a standalone span rather than belonging to a transaction */
+function isStandaloneSpan(span: Span): boolean {
+  return span instanceof SentrySpan && span.isStandaloneSpan();
+}
+
+/**
+ * Sends a `SpanEnvelope`.
+ *
+ * Note: If the envelope's spans are dropped, e.g. via `beforeSendSpan`,
+ * the envelope will not be sent either.
+ */
+function sendSpanEnvelope(envelope: SpanEnvelope): void {
+  const client = getClient();
+  if (!client) {
+    return;
+  }
+
+  const spanItems = envelope[1];
+  if (!spanItems || spanItems.length === 0) {
+    client.recordDroppedEvent('before_send', 'span');
+    return;
+  }
+
+  // sendEnvelope should not throw
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  client.sendEnvelope(envelope);
 }

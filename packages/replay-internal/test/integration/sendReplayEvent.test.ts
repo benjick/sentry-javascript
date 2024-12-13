@@ -1,6 +1,13 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import type { MockInstance, MockedFunction } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import * as SentryBrowserUtils from '@sentry-internal/browser-utils';
 import * as SentryCore from '@sentry/core';
-import type { Transport } from '@sentry/types';
+import type { Transport } from '@sentry/core';
 
 import { DEFAULT_FLUSH_MIN_DELAY, WINDOW } from '../../src/constants';
 import type { ReplayContainer } from '../../src/replay';
@@ -14,23 +21,19 @@ import { useFakeTimers } from '../utils/use-fake-timers';
 
 useFakeTimers();
 
-async function advanceTimers(time: number) {
-  jest.advanceTimersByTime(time);
-  await new Promise(process.nextTick);
-}
-
-type MockTransportSend = jest.MockedFunction<Transport['send']>;
+type MockTransportSend = MockedFunction<Transport['send']>;
 
 describe('Integration | sendReplayEvent', () => {
   let replay: ReplayContainer;
   let mockTransportSend: MockTransportSend;
-  let mockSendReplayRequest: jest.SpyInstance<any>;
+  let mockSendReplayRequest: MockInstance<any>;
   let domHandler: DomHandler;
+  const onError: () => void = vi.fn();
   const { record: mockRecord } = mockRrweb();
 
   beforeAll(async () => {
-    jest.setSystemTime(new Date(BASE_TIMESTAMP));
-    jest.spyOn(SentryBrowserUtils, 'addClickKeypressInstrumentationHandler').mockImplementation(handler => {
+    vi.setSystemTime(new Date(BASE_TIMESTAMP));
+    vi.spyOn(SentryBrowserUtils, 'addClickKeypressInstrumentationHandler').mockImplementation(handler => {
       domHandler = handler;
     });
 
@@ -42,17 +45,19 @@ describe('Integration | sendReplayEvent', () => {
         _experiments: {
           captureExceptions: true,
         },
+        onError,
       },
     }));
 
-    mockSendReplayRequest = jest.spyOn(SendReplayRequest, 'sendReplayRequest');
+    mockSendReplayRequest = vi.spyOn(SendReplayRequest, 'sendReplayRequest');
 
-    jest.runAllTimers();
+    await vi.runAllTimersAsync();
     mockTransportSend = SentryCore.getClient()?.getTransport()?.send as MockTransportSend;
   });
 
   beforeEach(() => {
-    jest.setSystemTime(new Date(BASE_TIMESTAMP));
+    vi.clearAllMocks();
+    vi.setSystemTime(new Date(BASE_TIMESTAMP));
     mockRecord.takeFullSnapshot.mockClear();
     mockTransportSend.mockClear();
 
@@ -66,9 +71,9 @@ describe('Integration | sendReplayEvent', () => {
   });
 
   afterEach(async () => {
-    jest.runAllTimers();
+    vi.runAllTimers();
     await new Promise(process.nextTick);
-    jest.setSystemTime(new Date(BASE_TIMESTAMP));
+    vi.setSystemTime(new Date(BASE_TIMESTAMP));
     clearSession(replay);
   });
 
@@ -87,7 +92,7 @@ describe('Integration | sendReplayEvent', () => {
 
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    jest.advanceTimersByTime(ELAPSED);
+    await vi.advanceTimersByTimeAsync(ELAPSED);
 
     const TEST_EVENT = getTestEventCheckout({ timestamp: BASE_TIMESTAMP });
     addEvent(replay, TEST_EVENT);
@@ -121,7 +126,7 @@ describe('Integration | sendReplayEvent', () => {
 
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    jest.advanceTimersByTime(ELAPSED);
+    vi.advanceTimersByTime(ELAPSED);
 
     domHandler({
       name: 'click',
@@ -143,7 +148,7 @@ describe('Integration | sendReplayEvent', () => {
 
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    jest.advanceTimersByTime(ELAPSED);
+    vi.advanceTimersByTime(ELAPSED);
 
     domHandler({
       name: 'input',
@@ -158,7 +163,7 @@ describe('Integration | sendReplayEvent', () => {
     mockRecord._emitter(TEST_EVENT);
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    await advanceTimers(ELAPSED);
+    await vi.advanceTimersByTimeAsync(ELAPSED);
 
     expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
 
@@ -177,7 +182,7 @@ describe('Integration | sendReplayEvent', () => {
     // Fire a new event every 4 seconds, 4 times
     for (let i = 0; i < 4; i++) {
       mockRecord._emitter(TEST_EVENT);
-      jest.advanceTimersByTime(4_000);
+      vi.advanceTimersByTime(4_000);
     }
 
     // We are at time = +16seconds now (relative to BASE_TIMESTAMP)
@@ -191,7 +196,7 @@ describe('Integration | sendReplayEvent', () => {
 
     // There should also not be another attempt at an upload 5 seconds after the last replay event
     mockTransportSend.mockClear();
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
     expect(replay).not.toHaveLastSentReplay();
 
     expect(replay.session?.lastActivity).toBe(BASE_TIMESTAMP);
@@ -202,7 +207,7 @@ describe('Integration | sendReplayEvent', () => {
     // Let's make sure it continues to work
     mockTransportSend.mockClear();
     mockRecord._emitter(TEST_EVENT);
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
     expect(replay).toHaveLastSentReplay({ recordingData: JSON.stringify([TEST_EVENT]) });
   });
 
@@ -216,7 +221,7 @@ describe('Integration | sendReplayEvent', () => {
 
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    jest.advanceTimersByTime(ELAPSED);
+    vi.advanceTimersByTime(ELAPSED);
 
     const TEST_EVENT = getTestEventCheckout({ timestamp: BASE_TIMESTAMP });
     const hiddenBreadcrumb = {
@@ -254,13 +259,13 @@ describe('Integration | sendReplayEvent', () => {
     });
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    jest.advanceTimersByTime(ELAPSED);
+    vi.advanceTimersByTime(ELAPSED);
 
     const TEST_EVENT = getTestEventCheckout({ timestamp: BASE_TIMESTAMP });
 
     addEvent(replay, TEST_EVENT);
     document.dispatchEvent(new Event('visibilitychange'));
-    jest.runAllTimers();
+    vi.runAllTimers();
     await new Promise(process.nextTick);
 
     expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
@@ -281,7 +286,7 @@ describe('Integration | sendReplayEvent', () => {
 
     // Pretend 5 seconds have passed
     const ELAPSED = 5000;
-    await advanceTimers(ELAPSED);
+    await vi.advanceTimersByTimeAsync(ELAPSED);
 
     expect(replay).toHaveLastSentReplay({
       recordingData: JSON.stringify([
@@ -310,26 +315,26 @@ describe('Integration | sendReplayEvent', () => {
     const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
 
     // Suppress console.errors
-    const mockConsole = jest.spyOn(console, 'error').mockImplementation(jest.fn());
+    const mockConsole = vi.spyOn(console, 'error').mockImplementation(vi.fn());
 
     // fail the first and second requests and pass the third one
     mockTransportSend.mockImplementationOnce(() => {
       throw new Error('Something bad happened');
     });
     mockRecord._emitter(TEST_EVENT);
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
 
     expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
     mockTransportSend.mockImplementationOnce(() => {
       throw new Error('Something bad happened');
     });
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
 
     // next tick should retry and succeed
     mockConsole.mockRestore();
 
-    await advanceTimers(8000);
-    await advanceTimers(2000);
+    await vi.advanceTimersByTimeAsync(8000);
+    await vi.advanceTimersByTimeAsync(2000);
 
     expect(replay).toHaveLastSentReplay({
       replayEventPayload: expect.objectContaining({
@@ -339,7 +344,7 @@ describe('Integration | sendReplayEvent', () => {
         // timestamp is set on first try, after 5s flush
         timestamp: (BASE_TIMESTAMP + 5000) / 1000,
         trace_ids: [],
-        urls: ['http://localhost/'],
+        urls: ['http://localhost:3000/'],
       }),
       recordingPayloadHeader: { segment_id: 0 },
       recordingData: JSON.stringify([TEST_EVENT]),
@@ -351,44 +356,45 @@ describe('Integration | sendReplayEvent', () => {
     expect(replay.session?.segmentId).toBe(1);
 
     // next tick should do nothing
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
     expect(replay).not.toHaveLastSentReplay();
   });
 
-  it('fails to upload data and hits retry max and stops', async () => {
+  it('fails to upload data, hits retry max, stops, and calls `onError` with the error', async () => {
     const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
+    const ERROR = new Error('Something bad happened');
 
-    const spyHandleException = jest.spyOn(SentryCore, 'captureException');
+    const spyHandleException = vi.spyOn(SentryCore, 'captureException');
 
     // Suppress console.errors
-    const mockConsole = jest.spyOn(console, 'error').mockImplementation(jest.fn());
+    const mockConsole = vi.spyOn(console, 'error').mockImplementation(vi.fn());
 
     expect(replay.session?.segmentId).toBe(0);
 
     // fail all requests
     mockSendReplayRequest.mockImplementation(async () => {
-      throw new Error('Something bad happened');
+      throw ERROR;
     });
     mockRecord._emitter(TEST_EVENT);
 
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
 
     expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
     expect(mockSendReplayRequest).toHaveBeenCalledTimes(1);
 
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
     expect(mockSendReplayRequest).toHaveBeenCalledTimes(2);
 
-    await advanceTimers(10000);
+    await vi.advanceTimersByTimeAsync(10000);
     expect(mockSendReplayRequest).toHaveBeenCalledTimes(3);
 
-    await advanceTimers(30000);
+    await vi.advanceTimersByTimeAsync(30000);
     expect(mockSendReplayRequest).toHaveBeenCalledTimes(4);
 
     mockConsole.mockReset();
 
     // Make sure it doesn't retry again
-    jest.runAllTimers();
+    await vi.runAllTimersAsync();
     expect(mockSendReplayRequest).toHaveBeenCalledTimes(4);
 
     // Retries = 3 (total tries = 4 including initial attempt)
@@ -397,17 +403,19 @@ describe('Integration | sendReplayEvent', () => {
     expect(spyHandleException).toHaveBeenLastCalledWith(new Error('Unable to send Replay - max retries exceeded'));
 
     const spyHandleExceptionCall = spyHandleException.mock.calls;
-    expect(spyHandleExceptionCall[spyHandleExceptionCall.length - 1][0].cause.message).toEqual(
+    expect(spyHandleExceptionCall[spyHandleExceptionCall.length - 1][0]?.cause.message).toEqual(
       'Something bad happened',
     );
 
     // Replay has stopped, no session should exist
     expect(replay.session).toBe(undefined);
     expect(replay.isEnabled()).toBe(false);
+    expect(onError).toHaveBeenCalledTimes(5);
+    expect(onError).toHaveBeenCalledWith(ERROR);
 
     // Events are ignored now, because we stopped
     mockRecord._emitter(TEST_EVENT);
-    await advanceTimers(DEFAULT_FLUSH_MIN_DELAY);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
     expect(mockSendReplayRequest).toHaveBeenCalledTimes(4);
   });
 

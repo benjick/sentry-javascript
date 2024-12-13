@@ -20,10 +20,15 @@ import type {
   Session,
   SeverityLevel,
   User,
-} from '@sentry/types';
-import { dateTimestampInSeconds, isPlainObject, logger, uuid4 } from '@sentry/utils';
+} from './types-hoist';
 
 import { updateSession } from './session';
+import { isPlainObject } from './utils-hoist/is';
+import { logger } from './utils-hoist/logger';
+import { uuid4 } from './utils-hoist/misc';
+import { generateSpanId, generateTraceId } from './utils-hoist/propagationContext';
+import { dateTimestampInSeconds } from './utils-hoist/time';
+import { merge } from './utils/merge';
 import { _getSpanForScope, _setSpanForScope } from './utils/spanOnScope';
 
 /**
@@ -34,7 +39,7 @@ const DEFAULT_MAX_BREADCRUMBS = 100;
 /**
  * Holds additional event information.
  */
-export class Scope implements ScopeInterface {
+class ScopeClass implements ScopeInterface {
   /** Flag if notifying is happening. */
   protected _notifyingListeners: boolean;
 
@@ -89,10 +94,14 @@ export class Scope implements ScopeInterface {
   protected _session?: Session;
 
   /** Request Mode Session Status */
+  // eslint-disable-next-line deprecation/deprecation
   protected _requestSession?: RequestSession;
 
   /** The client on this scope */
   protected _client?: Client;
+
+  /** Contains the last event id of a captured event.  */
+  protected _lastEventId?: string;
 
   // NOTE: Any field which gets added here should get added not only to the constructor but also to the `clone` method.
 
@@ -107,18 +116,29 @@ export class Scope implements ScopeInterface {
     this._extra = {};
     this._contexts = {};
     this._sdkProcessingMetadata = {};
-    this._propagationContext = generatePropagationContext();
+    this._propagationContext = {
+      traceId: generateTraceId(),
+      spanId: generateSpanId(),
+    };
   }
 
   /**
    * @inheritDoc
    */
-  public clone(): Scope {
-    const newScope = new Scope();
+  public clone(): ScopeClass {
+    const newScope = new ScopeClass();
     newScope._breadcrumbs = [...this._breadcrumbs];
     newScope._tags = { ...this._tags };
     newScope._extra = { ...this._extra };
     newScope._contexts = { ...this._contexts };
+    if (this._contexts.flags) {
+      // We need to copy the `values` array so insertions on a cloned scope
+      // won't affect the original array.
+      newScope._contexts.flags = {
+        values: [...this._contexts.flags.values],
+      };
+    }
+
     newScope._user = this._user;
     newScope._level = this._level;
     newScope._session = this._session;
@@ -130,6 +150,7 @@ export class Scope implements ScopeInterface {
     newScope._sdkProcessingMetadata = { ...this._sdkProcessingMetadata };
     newScope._propagationContext = { ...this._propagationContext };
     newScope._client = this._client;
+    newScope._lastEventId = this._lastEventId;
 
     _setSpanForScope(newScope, _getSpanForScope(this));
 
@@ -146,8 +167,22 @@ export class Scope implements ScopeInterface {
   /**
    * @inheritDoc
    */
+  public setLastEventId(lastEventId: string | undefined): void {
+    this._lastEventId = lastEventId;
+  }
+
+  /**
+   * @inheritDoc
+   */
   public getClient<C extends Client>(): C | undefined {
     return this._client as C | undefined;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public lastEventId(): string | undefined {
+    return this._lastEventId;
   }
 
   /**
@@ -196,6 +231,7 @@ export class Scope implements ScopeInterface {
   /**
    * @inheritDoc
    */
+  // eslint-disable-next-line deprecation/deprecation
   public getRequestSession(): RequestSession | undefined {
     return this._requestSession;
   }
@@ -203,6 +239,7 @@ export class Scope implements ScopeInterface {
   /**
    * @inheritDoc
    */
+  // eslint-disable-next-line deprecation/deprecation
   public setRequestSession(requestSession?: RequestSession): this {
     this._requestSession = requestSession;
     return this;
@@ -324,7 +361,8 @@ export class Scope implements ScopeInterface {
 
     const [scopeInstance, requestSession] =
       scopeToMerge instanceof Scope
-        ? [scopeToMerge.getScopeData(), scopeToMerge.getRequestSession()]
+        ? // eslint-disable-next-line deprecation/deprecation
+          [scopeToMerge.getScopeData(), scopeToMerge.getRequestSession()]
         : isPlainObject(scopeToMerge)
           ? [captureContext as ScopeContext, (captureContext as ScopeContext).requestSession]
           : [];
@@ -375,7 +413,7 @@ export class Scope implements ScopeInterface {
     this._session = undefined;
     _setSpanForScope(this, undefined);
     this._attachments = [];
-    this._propagationContext = generatePropagationContext();
+    this.setPropagationContext({ traceId: generateTraceId() });
 
     this._notifyScopeListeners();
     return this;
@@ -461,16 +499,21 @@ export class Scope implements ScopeInterface {
    * @inheritDoc
    */
   public setSDKProcessingMetadata(newData: { [key: string]: unknown }): this {
-    this._sdkProcessingMetadata = { ...this._sdkProcessingMetadata, ...newData };
-
+    this._sdkProcessingMetadata = merge(this._sdkProcessingMetadata, newData, 2);
     return this;
   }
 
   /**
    * @inheritDoc
    */
-  public setPropagationContext(context: PropagationContext): this {
-    this._propagationContext = context;
+  public setPropagationContext(
+    context: Omit<PropagationContext, 'spanId'> & Partial<Pick<PropagationContext, 'spanId'>>,
+  ): this {
+    this._propagationContext = {
+      // eslint-disable-next-line deprecation/deprecation
+      spanId: generateSpanId(),
+      ...context,
+    };
     return this;
   }
 
@@ -569,9 +612,12 @@ export class Scope implements ScopeInterface {
   }
 }
 
-function generatePropagationContext(): PropagationContext {
-  return {
-    traceId: uuid4(),
-    spanId: uuid4().substring(16),
-  };
-}
+/**
+ * Holds additional event information.
+ */
+export const Scope = ScopeClass;
+
+/**
+ * Holds additional event information.
+ */
+export type Scope = ScopeInterface;

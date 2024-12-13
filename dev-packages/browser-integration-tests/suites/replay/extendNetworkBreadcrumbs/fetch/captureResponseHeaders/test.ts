@@ -8,24 +8,16 @@ import {
   shouldSkipReplayTest,
 } from '../../../../../utils/replayHelpers';
 
-sentryTest('handles empty headers', async ({ getLocalTestPath, page, browserName }) => {
+sentryTest('handles empty headers', async ({ getLocalTestUrl, page, browserName }) => {
   if (shouldSkipReplayTest()) {
     sentryTest.skip();
   }
 
   const additionalHeaders = browserName === 'webkit' ? { 'content-type': 'text/plain' } : undefined;
 
-  await page.route('**/foo', route => {
+  await page.route('http://sentry-test.io/foo', route => {
     return route.fulfill({
       status: 200,
-    });
-  });
-
-  await page.route('https://dsn.ingest.sentry.io/**/*', route => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'test-id' }),
     });
   });
 
@@ -34,17 +26,19 @@ sentryTest('handles empty headers', async ({ getLocalTestPath, page, browserName
     return getReplayPerformanceSpans(recordingEvents).some(span => span.op === 'resource.fetch');
   });
 
-  const url = await getLocalTestPath({ testDir: __dirname });
+  const url = await getLocalTestUrl({ testDir: __dirname });
   await page.goto(url);
 
-  await page.evaluate(() => {
-    fetch('http://localhost:7654/foo').then(() => {
-      // @ts-expect-error Sentry is a global
-      Sentry.captureException('test error');
-    });
-  });
+  const [, request] = await Promise.all([
+    page.evaluate(() => {
+      fetch('http://sentry-test.io/foo').then(() => {
+        // @ts-expect-error Sentry is a global
+        Sentry.captureException('test error');
+      });
+    }),
+    requestPromise,
+  ]);
 
-  const request = await requestPromise;
   const eventData = envelopeRequestParser(request);
 
   expect(eventData.exception?.values).toHaveLength(1);
@@ -57,7 +51,7 @@ sentryTest('handles empty headers', async ({ getLocalTestPath, page, browserName
     data: {
       method: 'GET',
       status_code: 200,
-      url: 'http://localhost:7654/foo',
+      url: 'http://sentry-test.io/foo',
     },
   });
 
@@ -69,7 +63,7 @@ sentryTest('handles empty headers', async ({ getLocalTestPath, page, browserName
         statusCode: 200,
         response: additionalHeaders ? { headers: additionalHeaders } : undefined,
       },
-      description: 'http://localhost:7654/foo',
+      description: 'http://sentry-test.io/foo',
       endTimestamp: expect.any(Number),
       op: 'resource.fetch',
       startTimestamp: expect.any(Number),
@@ -77,12 +71,12 @@ sentryTest('handles empty headers', async ({ getLocalTestPath, page, browserName
   ]);
 });
 
-sentryTest('captures response headers', async ({ getLocalTestPath, page }) => {
+sentryTest('captures response headers', async ({ getLocalTestUrl, page }) => {
   if (shouldSkipReplayTest()) {
     sentryTest.skip();
   }
 
-  await page.route('**/foo', route => {
+  await page.route('http://sentry-test.io/foo', route => {
     return route.fulfill({
       status: 200,
       headers: {
@@ -95,30 +89,24 @@ sentryTest('captures response headers', async ({ getLocalTestPath, page }) => {
     });
   });
 
-  await page.route('https://dsn.ingest.sentry.io/**/*', route => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'test-id' }),
-    });
-  });
-
   const requestPromise = waitForErrorRequest(page);
   const replayRequestPromise = collectReplayRequests(page, recordingEvents => {
     return getReplayPerformanceSpans(recordingEvents).some(span => span.op === 'resource.fetch');
   });
 
-  const url = await getLocalTestPath({ testDir: __dirname });
+  const url = await getLocalTestUrl({ testDir: __dirname });
   await page.goto(url);
 
-  await page.evaluate(() => {
-    fetch('http://localhost:7654/foo').then(() => {
-      // @ts-expect-error Sentry is a global
-      Sentry.captureException('test error');
-    });
-  });
+  const [, request] = await Promise.all([
+    page.evaluate(() => {
+      fetch('http://sentry-test.io/foo').then(() => {
+        // @ts-expect-error Sentry is a global
+        Sentry.captureException('test error');
+      });
+    }),
+    requestPromise,
+  ]);
 
-  const request = await requestPromise;
   const eventData = envelopeRequestParser(request);
 
   expect(eventData.exception?.values).toHaveLength(1);
@@ -131,7 +119,7 @@ sentryTest('captures response headers', async ({ getLocalTestPath, page }) => {
     data: {
       method: 'GET',
       status_code: 200,
-      url: 'http://localhost:7654/foo',
+      url: 'http://sentry-test.io/foo',
     },
   });
 
@@ -149,7 +137,7 @@ sentryTest('captures response headers', async ({ getLocalTestPath, page }) => {
           },
         },
       },
-      description: 'http://localhost:7654/foo',
+      description: 'http://sentry-test.io/foo',
       endTimestamp: expect.any(Number),
       op: 'resource.fetch',
       startTimestamp: expect.any(Number),
@@ -157,12 +145,12 @@ sentryTest('captures response headers', async ({ getLocalTestPath, page }) => {
   ]);
 });
 
-sentryTest('does not capture response headers if URL does not match', async ({ getLocalTestPath, page }) => {
+sentryTest('does not capture response headers if URL does not match', async ({ getLocalTestUrl, page }) => {
   if (shouldSkipReplayTest()) {
     sentryTest.skip();
   }
 
-  await page.route('**/bar', route => {
+  await page.route('http://sentry-test.io/bar', route => {
     return route.fulfill({
       status: 200,
       headers: {
@@ -175,30 +163,24 @@ sentryTest('does not capture response headers if URL does not match', async ({ g
     });
   });
 
-  await page.route('https://dsn.ingest.sentry.io/**/*', route => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'test-id' }),
-    });
-  });
-
   const requestPromise = waitForErrorRequest(page);
   const replayRequestPromise = collectReplayRequests(page, recordingEvents => {
     return getReplayPerformanceSpans(recordingEvents).some(span => span.op === 'resource.fetch');
   });
 
-  const url = await getLocalTestPath({ testDir: __dirname });
+  const url = await getLocalTestUrl({ testDir: __dirname });
   await page.goto(url);
 
-  await page.evaluate(() => {
-    fetch('http://localhost:7654/bar').then(() => {
-      // @ts-expect-error Sentry is a global
-      Sentry.captureException('test error');
-    });
-  });
+  const [, request] = await Promise.all([
+    page.evaluate(() => {
+      fetch('http://sentry-test.io/bar').then(() => {
+        // @ts-expect-error Sentry is a global
+        Sentry.captureException('test error');
+      });
+    }),
+    requestPromise,
+  ]);
 
-  const request = await requestPromise;
   const eventData = envelopeRequestParser(request);
 
   expect(eventData.exception?.values).toHaveLength(1);
@@ -211,7 +193,7 @@ sentryTest('does not capture response headers if URL does not match', async ({ g
     data: {
       method: 'GET',
       status_code: 200,
-      url: 'http://localhost:7654/bar',
+      url: 'http://sentry-test.io/bar',
     },
   });
 
@@ -230,7 +212,7 @@ sentryTest('does not capture response headers if URL does not match', async ({ g
           _meta: { warnings: ['URL_SKIPPED'] },
         },
       },
-      description: 'http://localhost:7654/bar',
+      description: 'http://sentry-test.io/bar',
       endTimestamp: expect.any(Number),
       op: 'resource.fetch',
       startTimestamp: expect.any(Number),

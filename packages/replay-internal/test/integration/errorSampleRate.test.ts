@@ -1,3 +1,9 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { captureException, getClient } from '@sentry/core';
 
 import {
@@ -23,12 +29,7 @@ import { useFakeTimers } from '../utils/use-fake-timers';
 useFakeTimers();
 
 async function advanceTimers(time: number) {
-  jest.advanceTimersByTime(time);
-  await new Promise(process.nextTick);
-}
-
-async function waitForBufferFlush() {
-  await new Promise(process.nextTick);
+  vi.advanceTimersByTime(time);
   await new Promise(process.nextTick);
 }
 
@@ -72,13 +73,13 @@ describe('Integration | errorSampleRate', () => {
         name: 'click',
         event: new Event('click'),
       });
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
       expect(replay).not.toHaveLastSentReplay();
 
       captureException(new Error('testing'));
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveLastSentReplay({
         recordingPayloadHeader: { segment_id: 0 },
@@ -114,10 +115,10 @@ describe('Integration | errorSampleRate', () => {
         replayEventPayload: expect.objectContaining({
           replay_type: 'buffer',
         }),
-        recordingData: JSON.stringify([{ data: { isCheckout: true }, timestamp: BASE_TIMESTAMP + 40, type: 2 }]),
+        recordingData: JSON.stringify([{ data: { isCheckout: true }, timestamp: BASE_TIMESTAMP, type: 2 }]),
       });
 
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
 
       // Check that click will get captured
       domHandler({
@@ -131,11 +132,11 @@ describe('Integration | errorSampleRate', () => {
         recordingData: JSON.stringify([
           {
             type: 5,
-            timestamp: BASE_TIMESTAMP + 10000 + 80,
+            timestamp: BASE_TIMESTAMP + 10000,
             data: {
               tag: 'breadcrumb',
               payload: {
-                timestamp: (BASE_TIMESTAMP + 10000 + 80) / 1000,
+                timestamp: (BASE_TIMESTAMP + 10000) / 1000,
                 type: 'default',
                 category: 'ui.click',
                 message: '<unknown>',
@@ -145,6 +146,90 @@ describe('Integration | errorSampleRate', () => {
           },
         ]),
       });
+    });
+
+    it('loads an old session with a previousSessionId set and can send buffered replay', async () => {
+      vi.mock('../../src/session/fetchSession', () => ({
+        fetchSession: () => ({
+          id: 'newreplayid',
+          started: BASE_TIMESTAMP,
+          lastActivity: BASE_TIMESTAMP,
+          segmentId: 0,
+          sampled: 'buffer',
+          previousSessionId: 'previoussessionid',
+        }),
+      }));
+
+      const ADVANCED_TIME = 86400000;
+      const optionsEvent = createOptionsEvent(replay);
+
+      expect(replay.session.started).toBe(BASE_TIMESTAMP);
+
+      // advance time to make sure replay duration is invalid
+      vi.advanceTimersByTime(ADVANCED_TIME);
+
+      // full snapshot should update session start time
+      mockRecord.takeFullSnapshot(true);
+      expect(replay.session.started).toBe(BASE_TIMESTAMP + ADVANCED_TIME);
+      expect(replay.recordingMode).toBe('buffer');
+
+      // advance so we can flush
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+
+      captureException(new Error('testing'));
+      await vi.advanceTimersToNextTimerAsync();
+
+      // Converts to session mode
+      expect(replay.recordingMode).toBe('session');
+      expect(replay).toHaveLastSentReplay({
+        recordingPayloadHeader: { segment_id: 0 },
+        replayEventPayload: expect.objectContaining({
+          replay_type: 'buffer',
+        }),
+        recordingData: JSON.stringify([
+          { data: { isCheckout: true }, timestamp: BASE_TIMESTAMP + ADVANCED_TIME, type: 2 },
+          { ...optionsEvent, timestamp: BASE_TIMESTAMP + ADVANCED_TIME },
+        ]),
+      });
+
+      // capture next event
+      domHandler({
+        name: 'click',
+        event: new Event('click'),
+      });
+
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      await vi.advanceTimersToNextTimerAsync();
+
+      expect(replay).toHaveLastSentReplay({
+        recordingPayloadHeader: { segment_id: 1 },
+        replayEventPayload: expect.objectContaining({
+          // We don't change replay_type as it starts in buffer mode and that's
+          // what we're interested in, even though recordingMode changes to
+          // 'session'
+          replay_type: 'buffer',
+        }),
+        recordingData: JSON.stringify([
+          // There's a new checkout because we convert to session mode
+          { data: { isCheckout: true }, timestamp: BASE_TIMESTAMP + ADVANCED_TIME + DEFAULT_FLUSH_MIN_DELAY, type: 2 },
+          {
+            type: 5,
+            timestamp: BASE_TIMESTAMP + ADVANCED_TIME + DEFAULT_FLUSH_MIN_DELAY,
+            data: {
+              tag: 'breadcrumb',
+              payload: {
+                timestamp: (BASE_TIMESTAMP + ADVANCED_TIME + DEFAULT_FLUSH_MIN_DELAY) / 1000,
+                type: 'default',
+                category: 'ui.click',
+                message: '<unknown>',
+                data: {},
+              },
+            },
+          },
+        ]),
+      });
+      vi.unmock('../../src/session/fetchSession');
+      await waitForFlush();
     });
 
     it('manually flushes replay and does not continue to record', async () => {
@@ -160,13 +245,13 @@ describe('Integration | errorSampleRate', () => {
         name: 'click',
         event: new Event('click'),
       });
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
       expect(replay).not.toHaveLastSentReplay();
 
       replay.sendBufferedReplayOrFlush({ continueRecording: false });
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveSentReplay({
         recordingPayloadHeader: { segment_id: 0 },
@@ -194,7 +279,7 @@ describe('Integration | errorSampleRate', () => {
         ]),
       });
 
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
       // Check that click will not get captured
       domHandler({
         name: 'click',
@@ -245,14 +330,14 @@ describe('Integration | errorSampleRate', () => {
         name: 'click',
         event: new Event('click'),
       });
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
       expect(replay).not.toHaveLastSentReplay();
 
       replay.sendBufferedReplayOrFlush({ continueRecording: true });
       replay.sendBufferedReplayOrFlush({ continueRecording: true });
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveSentReplay({
         recordingPayloadHeader: { segment_id: 0 },
@@ -280,7 +365,7 @@ describe('Integration | errorSampleRate', () => {
         ]),
       });
 
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
       // Check that click will not get captured
       domHandler({
         name: 'click',
@@ -309,7 +394,7 @@ describe('Integration | errorSampleRate', () => {
       replay['_initializeSessionForSampling']();
       replay.setInitialState();
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
       expect(replay).not.toHaveLastSentReplay();
@@ -323,11 +408,11 @@ describe('Integration | errorSampleRate', () => {
         },
       });
 
-      jest.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION + 1);
+      vi.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION + 1);
 
       document.dispatchEvent(new Event('visibilitychange'));
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(replay).not.toHaveLastSentReplay();
@@ -342,13 +427,13 @@ describe('Integration | errorSampleRate', () => {
       });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(replay).not.toHaveLastSentReplay();
 
       // User comes back before `SESSION_IDLE_EXPIRE_DURATION` elapses
-      jest.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION - 100);
+      vi.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION - 100);
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
         get: function () {
@@ -357,7 +442,7 @@ describe('Integration | errorSampleRate', () => {
       });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
@@ -374,14 +459,14 @@ describe('Integration | errorSampleRate', () => {
 
       // Pretend 5 seconds have passed
       const ELAPSED = 5000;
-      jest.advanceTimersByTime(ELAPSED);
+      vi.advanceTimersByTime(ELAPSED);
 
       const TEST_EVENT = getTestEventCheckout({ timestamp: BASE_TIMESTAMP });
       addEvent(replay, TEST_EVENT);
 
       document.dispatchEvent(new Event('visibilitychange'));
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
@@ -397,7 +482,7 @@ describe('Integration | errorSampleRate', () => {
 
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(replay).not.toHaveLastSentReplay();
@@ -408,7 +493,7 @@ describe('Integration | errorSampleRate', () => {
       // Fire a new event every 4 seconds, 4 times
       [...Array(4)].forEach(() => {
         mockRecord._emitter(TEST_EVENT);
-        jest.advanceTimersByTime(4000);
+        vi.advanceTimersByTime(4000);
       });
 
       // We are at time = +16seconds now (relative to BASE_TIMESTAMP)
@@ -425,7 +510,7 @@ describe('Integration | errorSampleRate', () => {
       // Let's make sure it continues to work
       mockRecord._emitter(TEST_EVENT);
       await waitForFlush();
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
       expect(replay).not.toHaveLastSentReplay();
     });
@@ -440,7 +525,7 @@ describe('Integration | errorSampleRate', () => {
 
       captureException(new Error('testing'));
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveLastSentReplay({
         recordingPayloadHeader: { segment_id: 0 },
@@ -463,7 +548,7 @@ describe('Integration | errorSampleRate', () => {
       const sessionId = replay.getSessionId();
 
       // Idle for given time
-      jest.advanceTimersByTime(waitTime + 1);
+      vi.advanceTimersByTime(waitTime + 1);
       await new Promise(process.nextTick);
 
       const TEST_EVENT = getTestEventIncremental({
@@ -472,7 +557,7 @@ describe('Integration | errorSampleRate', () => {
       });
       mockRecord._emitter(TEST_EVENT);
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       // We stop recording after 15 minutes of inactivity in error mode
@@ -499,7 +584,7 @@ describe('Integration | errorSampleRate', () => {
       expect(replay).not.toHaveLastSentReplay();
 
       // Idle for given time
-      jest.advanceTimersByTime(waitTime + 1);
+      vi.advanceTimersByTime(waitTime + 1);
       await new Promise(process.nextTick);
 
       const TEST_EVENT = getTestEventIncremental({
@@ -508,7 +593,7 @@ describe('Integration | errorSampleRate', () => {
       });
       mockRecord._emitter(TEST_EVENT);
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       // in production, this happens at a time interval, here we mock this
@@ -536,7 +621,7 @@ describe('Integration | errorSampleRate', () => {
       // should still react to errors later on
       captureException(new Error('testing'));
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay.session?.id).toBe(oldSessionId);
 
@@ -560,7 +645,7 @@ describe('Integration | errorSampleRate', () => {
       expect(oldSessionId).toBeDefined();
 
       // Idle for 15 minutes
-      jest.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION + 1);
+      vi.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION + 1);
 
       const TEST_EVENT = getTestEventIncremental({
         data: { name: 'lost event' },
@@ -569,7 +654,7 @@ describe('Integration | errorSampleRate', () => {
       mockRecord._emitter(TEST_EVENT);
       expect(replay).not.toHaveLastSentReplay();
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       // We stop recording after SESSION_IDLE_EXPIRE_DURATION of inactivity in error mode
@@ -582,7 +667,7 @@ describe('Integration | errorSampleRate', () => {
       captureException(new Error('testing'));
 
       await new Promise(process.nextTick);
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
       await new Promise(process.nextTick);
       expect(replay.session?.id).toBe(oldSessionId);
 
@@ -617,16 +702,12 @@ describe('Integration | errorSampleRate', () => {
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
       expect(replay).not.toHaveLastSentReplay();
 
-      jest.runAllTimers();
-      await new Promise(process.nextTick);
-
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      await vi.advanceTimersByTimeAsync(DEFAULT_FLUSH_MIN_DELAY);
 
       captureException(new Error('testing'));
 
-      await new Promise(process.nextTick);
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
-      await new Promise(process.nextTick);
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveSentReplay({
         recordingData: JSON.stringify([
@@ -636,14 +717,10 @@ describe('Integration | errorSampleRate', () => {
         ]),
         replayEventPayload: expect.objectContaining({
           replay_start_timestamp: BASE_TIMESTAMP / 1000,
-          // the exception happens roughly 10 seconds after BASE_TIMESTAMP
-          // (advance timers + waiting for flush after the checkout) and
-          // extra time is likely due to async of `addMemoryEntry()`
-
-          timestamp: (BASE_TIMESTAMP + DEFAULT_FLUSH_MIN_DELAY + DEFAULT_FLUSH_MIN_DELAY + 40) / 1000,
+          timestamp: (BASE_TIMESTAMP + DEFAULT_FLUSH_MIN_DELAY + DEFAULT_FLUSH_MIN_DELAY) / 1000,
           error_ids: [expect.any(String)],
           trace_ids: [],
-          urls: ['http://localhost/'],
+          urls: ['http://localhost:3000/'],
           replay_id: expect.any(String),
         }),
         recordingPayloadHeader: { segment_id: 0 },
@@ -652,49 +729,49 @@ describe('Integration | errorSampleRate', () => {
 
     it('has correct timestamps when error occurs much later than initial pageload/checkout', async () => {
       const ELAPSED = BUFFER_CHECKOUT_TIME;
-      const TICK = 20;
       const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
       mockRecord._emitter(TEST_EVENT);
 
       // add a mock performance event
       replay.performanceEntries.push(PerformanceEntryResource());
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
       expect(replay).not.toHaveLastSentReplay();
 
-      jest.advanceTimersByTime(ELAPSED);
+      vi.advanceTimersByTime(ELAPSED);
 
       // in production, this happens at a time interval
       // session started time should be updated to this current timestamp
       mockRecord.takeFullSnapshot(true);
       const optionsEvent = createOptionsEvent(replay);
 
-      jest.runAllTimers();
+      vi.runAllTimers();
       await new Promise(process.nextTick);
 
       expect(replay).not.toHaveLastSentReplay();
 
       captureException(new Error('testing'));
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
+      // await vi.advanceTimersToNextTimerAsync();
 
       // This is still the timestamp from the full snapshot we took earlier
-      expect(replay.session?.started).toBe(BASE_TIMESTAMP + ELAPSED + TICK);
+      expect(replay.session?.started).toBe(BASE_TIMESTAMP + ELAPSED);
 
       // Does not capture mouse click
       expect(replay).toHaveSentReplay({
         recordingPayloadHeader: { segment_id: 0 },
         replayEventPayload: expect.objectContaining({
           // Make sure the old performance event is thrown out
-          replay_start_timestamp: (BASE_TIMESTAMP + ELAPSED + TICK) / 1000,
+          replay_start_timestamp: (BASE_TIMESTAMP + ELAPSED) / 1000,
         }),
         recordingData: JSON.stringify([
           {
             data: { isCheckout: true },
-            timestamp: BASE_TIMESTAMP + ELAPSED + TICK,
+            timestamp: BASE_TIMESTAMP + ELAPSED,
             type: 2,
           },
           optionsEvent,
@@ -703,7 +780,7 @@ describe('Integration | errorSampleRate', () => {
     });
 
     it('refreshes replay when user goes idle', async () => {
-      jest.setSystemTime(BASE_TIMESTAMP);
+      vi.setSystemTime(BASE_TIMESTAMP);
 
       const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
       mockRecord._emitter(TEST_EVENT);
@@ -711,12 +788,10 @@ describe('Integration | errorSampleRate', () => {
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
       expect(replay).not.toHaveLastSentReplay();
 
-      jest.runAllTimers();
-      await new Promise(process.nextTick);
-
       captureException(new Error('testing'));
 
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveLastSentReplay();
 
@@ -725,14 +800,14 @@ describe('Integration | errorSampleRate', () => {
 
       // Now wait after session expires - should stop recording
       mockRecord.takeFullSnapshot.mockClear();
-      (getClient()!.getTransport()!.send as unknown as jest.SpyInstance<any>).mockClear();
+      (getClient()!.getTransport()!.send as unknown as MockInstance<any>).mockClear();
 
       expect(replay).not.toHaveLastSentReplay();
 
       const sessionId = replay.getSessionId();
 
       // Go idle
-      jest.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION + 1);
+      vi.advanceTimersByTime(SESSION_IDLE_EXPIRE_DURATION + 1);
       await new Promise(process.nextTick);
 
       mockRecord._emitter(TEST_EVENT);
@@ -749,7 +824,7 @@ describe('Integration | errorSampleRate', () => {
 
     it('refreshes replay when session exceeds max length after latest captured error', async () => {
       const sessionId = replay.session?.id;
-      jest.setSystemTime(BASE_TIMESTAMP);
+      vi.setSystemTime(BASE_TIMESTAMP);
 
       const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
       mockRecord._emitter(TEST_EVENT);
@@ -757,10 +832,9 @@ describe('Integration | errorSampleRate', () => {
       expect(mockRecord.takeFullSnapshot).not.toHaveBeenCalled();
       expect(replay).not.toHaveLastSentReplay();
 
-      jest.runAllTimers();
-      await new Promise(process.nextTick);
+      await vi.runAllTimersAsync();
 
-      jest.advanceTimersByTime(2 * MAX_REPLAY_DURATION);
+      await vi.advanceTimersByTimeAsync(2 * MAX_REPLAY_DURATION);
 
       // in production, this happens at a time interval, here we mock this
       mockRecord.takeFullSnapshot(true);
@@ -768,11 +842,11 @@ describe('Integration | errorSampleRate', () => {
       captureException(new Error('testing'));
 
       // Flush due to exception
-      await new Promise(process.nextTick);
+      await vi.advanceTimersToNextTimerAsync();
       await waitForFlush();
 
       expect(replay.session?.id).toBe(sessionId);
-      expect(replay).toHaveLastSentReplay({
+      expect(replay).toHaveSentReplay({
         recordingPayloadHeader: { segment_id: 0 },
       });
 
@@ -785,7 +859,7 @@ describe('Integration | errorSampleRate', () => {
             data: {
               isCheckout: true,
             },
-            timestamp: BASE_TIMESTAMP + 2 * MAX_REPLAY_DURATION + DEFAULT_FLUSH_MIN_DELAY + 40,
+            timestamp: BASE_TIMESTAMP + 2 * MAX_REPLAY_DURATION + DEFAULT_FLUSH_MIN_DELAY,
             type: 2,
           },
         ]),
@@ -793,14 +867,12 @@ describe('Integration | errorSampleRate', () => {
 
       // Now wait after session expires - should stop recording
       mockRecord.takeFullSnapshot.mockClear();
-      (getClient()!.getTransport()!.send as unknown as jest.SpyInstance<any>).mockClear();
+      (getClient()!.getTransport()!.send as unknown as MockInstance<any>).mockClear();
 
-      jest.advanceTimersByTime(MAX_REPLAY_DURATION);
-      await new Promise(process.nextTick);
+      await advanceTimers(MAX_REPLAY_DURATION);
 
       mockRecord._emitter(TEST_EVENT);
-      jest.runAllTimers();
-      await new Promise(process.nextTick);
+      await vi.runAllTimersAsync();
 
       expect(replay).not.toHaveLastSentReplay();
       expect(mockRecord.takeFullSnapshot).toHaveBeenCalledTimes(0);
@@ -812,7 +884,7 @@ describe('Integration | errorSampleRate', () => {
       captureException(new Error('testing'));
 
       await new Promise(process.nextTick);
-      jest.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
+      vi.advanceTimersByTime(DEFAULT_FLUSH_MIN_DELAY);
       await new Promise(process.nextTick);
       expect(replay).toHaveLastSentReplay();
     });
@@ -821,14 +893,14 @@ describe('Integration | errorSampleRate', () => {
       const stepDuration = 10_000;
       const steps = 5_000;
 
-      jest.setSystemTime(BASE_TIMESTAMP);
+      vi.setSystemTime(BASE_TIMESTAMP);
 
       expect(replay).not.toHaveLastSentReplay();
 
       let optionsEvent = createOptionsEvent(replay);
 
       for (let i = 1; i <= steps; i++) {
-        jest.advanceTimersByTime(stepDuration);
+        vi.advanceTimersByTime(stepDuration);
         optionsEvent = createOptionsEvent(replay);
         mockRecord._emitter({ data: { step: i }, timestamp: BASE_TIMESTAMP + stepDuration * i, type: 2 }, true);
         mockRecord._emitter({ data: { step: i }, timestamp: BASE_TIMESTAMP + stepDuration * i + 5, type: 3 });
@@ -842,7 +914,8 @@ describe('Integration | errorSampleRate', () => {
 
       // Now capture an error
       captureException(new Error('testing'));
-      await waitForBufferFlush();
+      await vi.advanceTimersToNextTimerAsync();
+      await vi.advanceTimersToNextTimerAsync();
 
       expect(replay).toHaveLastSentReplay({
         recordingData: JSON.stringify([
@@ -854,7 +927,7 @@ describe('Integration | errorSampleRate', () => {
           replay_start_timestamp: (BASE_TIMESTAMP + stepDuration * steps) / 1000,
           error_ids: [expect.any(String)],
           trace_ids: [],
-          urls: ['http://localhost/'],
+          urls: ['http://localhost:3000/'],
           replay_id: expect.any(String),
         }),
         recordingPayloadHeader: { segment_id: 0 },
@@ -882,7 +955,7 @@ describe('Integration | errorSampleRate', () => {
       },
       autoStart: false,
     });
-    integration['_initialize']();
+    integration['_initialize'](getClient()!);
 
     expect(replay.recordingMode).toBe('session');
     const sessionId = replay.getSessionId();
@@ -890,7 +963,7 @@ describe('Integration | errorSampleRate', () => {
     // Waiting for max life should eventually refresh the session
     // We simulate a full checkout which would otherwise be done automatically
     for (let i = 0; i < MAX_REPLAY_DURATION / 60_000; i++) {
-      jest.advanceTimersByTime(60_000);
+      vi.advanceTimersByTime(60_000);
       await new Promise(process.nextTick);
       mockRecord.takeFullSnapshot(true);
     }
@@ -915,9 +988,9 @@ describe('Integration | errorSampleRate', () => {
       },
       autoStart: false,
     });
-    integration['_initialize']();
+    integration['_initialize'](getClient()!);
 
-    jest.runAllTimers();
+    vi.runAllTimers();
 
     await new Promise(process.nextTick);
     const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
@@ -928,7 +1001,7 @@ describe('Integration | errorSampleRate', () => {
     // Waiting for max life should eventually stop recording
     // We simulate a full checkout which would otherwise be done automatically
     for (let i = 0; i < MAX_REPLAY_DURATION / 60_000; i++) {
-      jest.advanceTimersByTime(60_000);
+      vi.advanceTimersByTime(60_000);
       await new Promise(process.nextTick);
       mockRecord.takeFullSnapshot(true);
     }
@@ -959,12 +1032,9 @@ describe('Integration | errorSampleRate', () => {
       },
       autoStart: false,
     });
-    integration['_initialize']();
+    integration['_initialize'](getClient()!);
     const optionsEvent = createOptionsEvent(replay);
 
-    jest.runAllTimers();
-
-    await new Promise(process.nextTick);
     const TEST_EVENT = getTestEventIncremental({ timestamp: BASE_TIMESTAMP });
     mockRecord._emitter(TEST_EVENT);
 
@@ -973,7 +1043,8 @@ describe('Integration | errorSampleRate', () => {
     captureException(new Error('testing'));
 
     // 2 ticks to send replay from an error
-    await waitForBufferFlush();
+    await vi.advanceTimersToNextTimerAsync();
+    await vi.advanceTimersToNextTimerAsync();
 
     // Buffered events before error
     expect(replay).toHaveSentReplay({
@@ -986,13 +1057,13 @@ describe('Integration | errorSampleRate', () => {
     });
 
     // `startRecording()` after switching to session mode to continue recording
-    await waitForFlush();
+    await vi.advanceTimersToNextTimerAsync();
 
     // Latest checkout when we call `startRecording` again after uploading segment
     // after an error occurs (e.g. when we switch to session replay recording)
     expect(replay).toHaveLastSentReplay({
       recordingPayloadHeader: { segment_id: 1 },
-      recordingData: JSON.stringify([{ data: { isCheckout: true }, timestamp: BASE_TIMESTAMP + 40, type: 2 }]),
+      recordingData: JSON.stringify([{ data: { isCheckout: true }, timestamp: BASE_TIMESTAMP, type: 2 }]),
     });
   });
 });

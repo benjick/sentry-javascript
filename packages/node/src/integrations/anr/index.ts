@@ -1,12 +1,23 @@
-import { defineIntegration, mergeScopeData } from '@sentry/core';
-import type { Contexts, Event, EventHint, Integration, IntegrationFn, ScopeData } from '@sentry/types';
-import { GLOBAL_OBJ, logger } from '@sentry/utils';
-import * as inspector from 'inspector';
-import { Worker } from 'worker_threads';
-import { getCurrentScope, getGlobalScope, getIsolationScope } from '../..';
+import { types } from 'node:util';
+import { Worker } from 'node:worker_threads';
+import type { Contexts, Event, EventHint, Integration, IntegrationFn, ScopeData } from '@sentry/core';
+import {
+  GLOBAL_OBJ,
+  defineIntegration,
+  getClient,
+  getCurrentScope,
+  getFilenameToDebugIdMap,
+  getGlobalScope,
+  getIsolationScope,
+  logger,
+  mergeScopeData,
+} from '@sentry/core';
 import { NODE_VERSION } from '../../nodeVersion';
 import type { NodeClient } from '../../sdk/client';
+import { isDebuggerEnabled } from '../../utils/debug';
 import type { AnrIntegrationOptions, WorkerStartData } from './common';
+
+const { isPromise } = types;
 
 // This string is a placeholder that gets overwritten with the worker code.
 export const base64WorkerScript = '###AnrWorkerScript###';
@@ -88,8 +99,13 @@ const _anrIntegration = ((options: Partial<AnrIntegrationOptions> = {}) => {
         });
       }
     },
-    setup(initClient: NodeClient) {
+    async setup(initClient: NodeClient) {
       client = initClient;
+
+      if (options.captureStackTrace && (await isDebuggerEnabled())) {
+        logger.warn('ANR captureStackTrace has been disabled because the debugger was already enabled');
+        options.captureStackTrace = false;
+      }
 
       // setImmediate is used to ensure that all other integrations have had their setup called first.
       // This allows us to call into all integrations to fetch the full context
@@ -149,6 +165,7 @@ async function _startWorker(
   };
 
   if (options.captureStackTrace) {
+    const inspector = await import('node:inspector');
     if (!inspector.url()) {
       inspector.open(0);
     }
@@ -156,6 +173,8 @@ async function _startWorker(
 
   const worker = new Worker(new URL(`data:application/javascript;base64,${base64WorkerScript}`), {
     workerData: options,
+    // We don't want any Node args to be passed to the worker
+    execArgv: [],
   });
 
   process.on('exit', () => {
@@ -170,7 +189,7 @@ async function _startWorker(
       // serialized without making it a SerializedSession
       const session = currentSession ? { ...currentSession, toJSON: undefined } : undefined;
       // message the worker to tell it the main event loop is still running
-      worker.postMessage({ session });
+      worker.postMessage({ session, debugImages: getFilenameToDebugIdMap(initOptions.stackParser) });
     } catch (_) {
       //
     }
@@ -203,4 +222,27 @@ async function _startWorker(
     worker.terminate();
     clearInterval(timer);
   };
+}
+
+export function disableAnrDetectionForCallback<T>(callback: () => T): T;
+export function disableAnrDetectionForCallback<T>(callback: () => Promise<T>): Promise<T>;
+/**
+ * Disables ANR detection for the duration of the callback
+ */
+export function disableAnrDetectionForCallback<T>(callback: () => T | Promise<T>): T | Promise<T> {
+  const integration = getClient()?.getIntegrationByName(INTEGRATION_NAME) as AnrInternal | undefined;
+
+  if (!integration) {
+    return callback();
+  }
+
+  integration.stopWorker();
+
+  const result = callback();
+  if (isPromise(result)) {
+    return result.finally(() => integration.startWorker());
+  }
+
+  integration.startWorker();
+  return result;
 }

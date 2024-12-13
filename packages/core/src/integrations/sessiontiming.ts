@@ -1,15 +1,16 @@
-import type { IntegrationFn } from '@sentry/types';
 import { defineIntegration } from '../integration';
+import type { IntegrationFn } from '../types-hoist';
+import { timestampInSeconds } from '../utils-hoist/time';
 
 const INTEGRATION_NAME = 'SessionTiming';
 
 const _sessionTimingIntegration = (() => {
-  const startTime = Date.now();
+  const startTime = timestampInSeconds() * 1000;
 
   return {
     name: INTEGRATION_NAME,
     processEvent(event) {
-      const now = Date.now();
+      const now = timestampInSeconds() * 1000;
 
       return {
         ...event,
@@ -27,5 +28,8 @@ const _sessionTimingIntegration = (() => {
 /**
  * This function adds duration since the sessionTimingIntegration was initialized
  * till the time event was sent.
+ *
+ * @deprecated This integration is deprecated and will be removed in the next major version of the SDK.
+ * To capture session durations alongside events, use [Context](https://docs.sentry.io/platforms/javascript/enriching-events/context/) (`Sentry.setContext()`).
  */
 export const sessionTimingIntegration = defineIntegration(_sessionTimingIntegration);

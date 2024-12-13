@@ -1,3 +1,10 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import type { MockedFunction } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
 import { MAX_REPLAY_DURATION, SESSION_IDLE_EXPIRE_DURATION, WINDOW } from '../../../src/constants';
 import { makeSession } from '../../../src/session/Session';
 import * as CreateSession from '../../../src/session/createSession';
@@ -6,10 +13,10 @@ import { loadOrCreateSession } from '../../../src/session/loadOrCreateSession';
 import { saveSession } from '../../../src/session/saveSession';
 import type { SessionOptions } from '../../../src/types';
 
-jest.mock('@sentry/utils', () => {
+vi.mock('@sentry/core', async () => {
   return {
-    ...(jest.requireActual('@sentry/utils') as { string: unknown }),
-    uuid4: jest.fn(() => 'test_session_uuid'),
+    ...((await vi.importActual('@sentry/core')) as { string: unknown }),
+    uuid4: vi.fn(() => 'test_session_uuid'),
   };
 });
 
@@ -42,15 +49,15 @@ function createMockSession(when: number = Date.now(), id = 'test_session_id') {
 
 describe('Unit | session | loadOrCreateSession', () => {
   beforeAll(() => {
-    jest.spyOn(CreateSession, 'createSession');
-    jest.spyOn(FetchSession, 'fetchSession');
+    vi.spyOn(CreateSession, 'createSession');
+    vi.spyOn(FetchSession, 'fetchSession');
     WINDOW.sessionStorage.clear();
   });
 
   afterEach(() => {
     WINDOW.sessionStorage.clear();
-    (CreateSession.createSession as jest.MockedFunction<typeof CreateSession.createSession>).mockClear();
-    (FetchSession.fetchSession as jest.MockedFunction<typeof FetchSession.fetchSession>).mockClear();
+    (CreateSession.createSession as MockedFunction<typeof CreateSession.createSession>).mockClear();
+    (FetchSession.fetchSession as MockedFunction<typeof FetchSession.fetchSession>).mockClear();
   });
 
   describe('stickySession: false', () => {

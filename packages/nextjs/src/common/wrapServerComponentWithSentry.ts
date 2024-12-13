@@ -1,24 +1,30 @@
+import type { RequestEventData } from '@sentry/core';
 import {
+  SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
   SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
   SPAN_STATUS_ERROR,
   SPAN_STATUS_OK,
+  Scope,
   captureException,
-  getCurrentScope,
+  generateSpanId,
+  generateTraceId,
+  getActiveSpan,
+  getCapturedScopesOnSpan,
+  getRootSpan,
   handleCallbackErrors,
+  propagationContextFromHeaders,
+  setCapturedScopesOnSpan,
   startSpanManual,
+  vercelWaitUntil,
+  winterCGHeadersToDict,
   withIsolationScope,
+  withScope,
 } from '@sentry/core';
-import { propagationContextFromHeaders, winterCGHeadersToDict } from '@sentry/utils';
-
-import { SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN } from '@sentry/core';
 import { isNotFoundNavigationError, isRedirectNavigationError } from '../common/nextNavigationErrorUtils';
 import type { ServerComponentContext } from '../common/types';
-import { flushQueue } from './utils/responseEnd';
-import {
-  commonObjectToIsolationScope,
-  commonObjectToPropagationContext,
-  escapeNextjsTracing,
-} from './utils/tracingUtils';
+import { TRANSACTION_ATTR_SENTRY_TRACE_BACKFILL } from './span-attributes-with-logic-attached';
+import { flushSafelyWithTimeout } from './utils/responseEnd';
+import { commonObjectToIsolationScope, commonObjectToPropagationContext } from './utils/tracingUtils';
 
 /**
  * Wraps an `app` directory server component with Sentry error instrumentation.
@@ -34,33 +40,55 @@ export function wrapServerComponentWithSentry<F extends (...args: any[]) => any>
   // hook. 🤯
   return new Proxy(appDirComponent, {
     apply: (originalFunction, thisArg, args) => {
-      return escapeNextjsTracing(() => {
-        const isolationScope = commonObjectToIsolationScope(context.headers);
+      const requestTraceId = getActiveSpan()?.spanContext().traceId;
+      const isolationScope = commonObjectToIsolationScope(context.headers);
 
-        const completeHeadersDict: Record<string, string> = context.headers
-          ? winterCGHeadersToDict(context.headers)
-          : {};
+      const activeSpan = getActiveSpan();
+      if (activeSpan) {
+        const rootSpan = getRootSpan(activeSpan);
+        const { scope } = getCapturedScopesOnSpan(rootSpan);
+        setCapturedScopesOnSpan(rootSpan, scope ?? new Scope(), isolationScope);
+      }
 
-        isolationScope.setSDKProcessingMetadata({
-          request: {
-            headers: completeHeadersDict,
-          },
-        });
+      const headersDict = context.headers ? winterCGHeadersToDict(context.headers) : undefined;
 
-        const incomingPropagationContext = propagationContextFromHeaders(
-          completeHeadersDict['sentry-trace'],
-          completeHeadersDict['baggage'],
-        );
+      isolationScope.setSDKProcessingMetadata({
+        normalizedRequest: {
+          headers: headersDict,
+        } satisfies RequestEventData,
+      });
 
-        const propagationContext = commonObjectToPropagationContext(context.headers, incomingPropagationContext);
+      return withIsolationScope(isolationScope, () => {
+        return withScope(scope => {
+          scope.setTransactionName(`${componentType} Server Component (${componentRoute})`);
 
-        return withIsolationScope(isolationScope, () => {
-          getCurrentScope().setPropagationContext(propagationContext);
+          if (process.env.NEXT_RUNTIME === 'edge') {
+            const propagationContext = commonObjectToPropagationContext(
+              context.headers,
+              headersDict?.['sentry-trace']
+                ? propagationContextFromHeaders(headersDict['sentry-trace'], headersDict['baggage'])
+                : {
+                    traceId: requestTraceId || generateTraceId(),
+                    spanId: generateSpanId(),
+                  },
+            );
+
+            scope.setPropagationContext(propagationContext);
+          }
+
+          const activeSpan = getActiveSpan();
+          if (activeSpan) {
+            const rootSpan = getRootSpan(activeSpan);
+            const sentryTrace = headersDict?.['sentry-trace'];
+            if (sentryTrace) {
+              rootSpan.setAttribute(TRANSACTION_ATTR_SENTRY_TRACE_BACKFILL, sentryTrace);
+            }
+          }
+
           return startSpanManual(
             {
               op: 'function.nextjs',
               name: `${componentType} Server Component (${componentRoute})`,
-              forceTransaction: true,
               attributes: {
                 [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: 'component',
                 [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: 'auto.function.nextjs',
@@ -70,6 +98,8 @@ export function wrapServerComponentWithSentry<F extends (...args: any[]) => any>
               return handleCallbackErrors(
                 () => originalFunction.apply(thisArg, args),
                 error => {
+                  // When you read this code you might think: "Wait a minute, shouldn't we set the status on the root span too?"
+                  // The answer is: "No." - The status of the root span is determined by whatever status code Next.js decides to put on the response.
                   if (isNotFoundNavigationError(error)) {
                     // We don't want to report "not-found"s
                     span.setStatus({ code: SPAN_STATUS_ERROR, message: 'not_found' });
@@ -87,10 +117,7 @@ export function wrapServerComponentWithSentry<F extends (...args: any[]) => any>
                 },
                 () => {
                   span.end();
-
-                  // flushQueue should not throw
-                  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                  flushQueue();
+                  vercelWaitUntil(flushSafelyWithTimeout());
                 },
               );
             },
