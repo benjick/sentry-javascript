@@ -206,9 +206,7 @@ export function getInjectionData(context: Context): {
     return {
       dynamicSamplingContext,
       traceId: spanContext.traceId,
-      // Because this is a remote span, we do not want to propagate this directly
-      // As otherwise things may be attached "directly" to an unrelated span
-      spanId: generateSpanId(),
+      spanId: undefined,
       sampled: getSamplingDecision(spanContext),
     };
   }
@@ -236,7 +234,7 @@ export function getInjectionData(context: Context): {
   return {
     dynamicSamplingContext,
     traceId: propagationContext.traceId,
-    spanId: generateSpanId(),
+    spanId: undefined,
     sampled: propagationContext.sampled,
   };
 }
