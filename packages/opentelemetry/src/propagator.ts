@@ -8,7 +8,6 @@ import {
   SENTRY_BAGGAGE_KEY_PREFIX,
   baggageHeaderToDynamicSamplingContext,
   generateSentryTraceHeader,
-  generateSpanId,
   getClient,
   getCurrentScope,
   getDynamicSamplingContextFromScope,
