@@ -34,10 +34,13 @@ import { makeTraceState } from './utils/makeTraceState';
 import { setIsSetup } from './utils/setupCheck';
 import { spanHasParentId } from './utils/spanTypes';
 
-/** Get the Sentry propagation context from a span context. */
+/**
+ * Get the Sentry propagation context from a span context.
+ * @deprecated This method is not used anymore and may be removed in a future major.
+ */
 export function getPropagationContextFromSpan(span: Span): PropagationContext {
   const spanContext = span.spanContext();
-  const { traceId, spanId, traceState } = spanContext;
+  const { traceId, traceState } = spanContext;
 
   // When we have a dsc trace state, it means this came from the incoming trace
   // Then this takes presedence over the root span
@@ -52,7 +55,6 @@ export function getPropagationContextFromSpan(span: Span): PropagationContext {
 
   return {
     traceId,
-    spanId,
     sampled,
     parentSpanId,
     dsc,
@@ -234,9 +236,7 @@ export function getInjectionData(context: Context): {
   return {
     dynamicSamplingContext,
     traceId: propagationContext.traceId,
-    // TODO(v9): Use generateSpanId() instead
-    // eslint-disable-next-line deprecation/deprecation
-    spanId: propagationContext.spanId,
+    spanId: generateSpanId(),
     sampled: propagationContext.sampled,
   };
 }
