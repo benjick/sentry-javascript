@@ -158,7 +158,7 @@ export function getLocationHref(): string {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getDomElement<E = any>(selector: string): E | null {
-  if (WINDOW.document && WINDOW.document.querySelector) {
+  if (WINDOW.document && 'querySelector' in WINDOW.document) {
     return WINDOW.document.querySelector(selector) as unknown as E;
   }
   return null;
